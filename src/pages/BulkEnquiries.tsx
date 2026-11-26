@@ -884,7 +884,7 @@ function OrderActions({ e, onSaved }: { e: BulkEnquiryDetail; onSaved: (next: Bu
           </button>
         )}
       </div>
-      {e.status === 'PAID' && <p className="small mb-0">Call the customer on WhatsApp to arrange the delivery day (usually 5–7 days), then press Called customer.</p>}
+      {e.status === 'PAID' && <p className="small mb-0">Call the customer on WhatsApp to arrange the delivery day (usually 3–5 days), then press Called customer.</p>}
       {cantCancelWhy && e.status !== 'CANCELLED' && (
         <p className="small muted mb-0" id={`cancel-why-${e.id}`}>
           <Lock size={12} aria-hidden="true" /> {cantCancelWhy}

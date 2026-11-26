@@ -190,7 +190,7 @@ const BULK_FEE_WORDS = `Delivery fee: ${BULK_FEE_SHARE}`
 const bulkFee = (t) => Math.round((Math.round(t.bulk * 100) * BULK_DELIVERY_PCT) / 100) / 100
 /** Rupees for bulk money: whole rupees, or with the paise when there are any (a 10% fee can end in paise: ₹1,977.80). */
 const bulkMoney = (rs) => Math.round(rs * 100) % 100 ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(rs) : currency(rs)
-const BULK_DAYS = '5–7 days'
+const BULK_DAYS = '3–5 days'
 const tenOf = (five) => ({ ...five, sku: `${five.sku}@10`, boxSize: '10kg', price: five.price * 2, base: five.sku, packKg: 10 })
 /** A bulk list id → the box it stands for (a real 5 kg sku, or its 10 kg bulk box). */
 function bulkSku(id) {

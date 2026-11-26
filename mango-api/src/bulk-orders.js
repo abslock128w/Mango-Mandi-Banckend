@@ -1,6 +1,6 @@
 // Bulk orders paid at once (mango-api/README.md, Bulk orders): from BULK_MIN_KG (100 kg) in 5 kg and 10 kg boxes,
 // at bulk prices (bulk-price.js), paid in full by a Razorpay payment link when they are placed, as a pre-order is.
-// Our team then calls the customer on WhatsApp to arrange the delivery (usually 5 to 7 days). A bulk order is a
+// Our team then calls the customer on WhatsApp to arrange the delivery (usually 3 to 5 days). A bulk order is a
 // bulk_enquiries row of kind ORDER, numbered B… like every bulk record (order-number.js).
 //
 // Statuses (migration 084):

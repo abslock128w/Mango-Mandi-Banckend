@@ -594,7 +594,7 @@ Suggested wording: Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} f
 - Template: `mandi_bulk_order_paid`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A bulk order placed on the shop (100 kg or more, at bulk prices) is paid in full. The wording must say our team will call on WhatsApp to arrange the delivery (usually 5 to 7 days), and that it can be cancelled for a full refund within 4 hours of paying, until it is dispatched.
+- Sent when: A bulk order placed on the shop (100 kg or more, at bulk prices) is paid in full. The wording must say our team will call on WhatsApp to arrange the delivery (usually 3 to 5 days), and that it can be cancelled for a full refund within 4 hours of paying, until it is dispatched.
 - Only with `WHATSAPP_BULK_UPDATES=true`
 - Button: none
 - If it can't be sent: Not sent: the shop shows the order, its payment and the cancel window on the bulk order page, and the panel lists it first under Bulk orders.
@@ -605,7 +605,7 @@ Suggested wording: Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} f
   4. quantity (example: 150 kg (30 boxes))
   5. order link (example: https://mandimangoes.in/bulk/orders/benq_1)
 
-Suggested wording: Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}, paid in full ({{3}}). Our team will call you on WhatsApp to arrange the delivery, usually within 5 to 7 days. You can cancel it for a full refund within 4 hours of paying, until it is dispatched: {{5}}
+Suggested wording: Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}, paid in full ({{3}}). Our team will call you on WhatsApp to arrange the delivery, usually within 3 to 5 days. You can cancel it for a full refund within 4 hours of paying, until it is dispatched: {{5}}
 
 ## FARM_VISIT_ENQUIRY_RECEIVED
 
