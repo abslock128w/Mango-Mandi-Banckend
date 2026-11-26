@@ -605,7 +605,7 @@ Suggested wording: Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} f
   4. quantity (example: 150 kg (30 boxes))
   5. order link (example: https://mandimangoes.in/bulk/orders/benq_1)
 
-Suggested wording: Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}, paid in full ({{3}}). Our team will call you on WhatsApp to arrange the delivery, usually within 3 to 5 days. You can cancel it for a full refund within 4 hours of paying, until it is dispatched: {{5}}
+Suggested wording: Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}, paid in full ({{3}}). Our team will call you on WhatsApp to arrange the delivery, usually within 5 to 7 days. You can cancel it for a full refund within 4 hours of paying, until it is dispatched: {{5}}
 
 ## FARM_VISIT_ENQUIRY_RECEIVED
 
