@@ -261,13 +261,11 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 @media(max-width:700px){[data-theme="dark"] .sun-controls{background:none;box-shadow:none}}
 /* Hero footer on phones, dark: deep green ground, cream words, yellow icons; the dots' pill dark. */
 @media(max-width:700px){[data-theme="dark"] .sun-banner,[data-theme="dark"] .sun-trust{--trust-bg:#163223}[data-theme="dark"] .sun-trust{border-top-color:#ffffff1a}[data-theme="dark"] .sun-trust li{color:#fff3d6}[data-theme="dark"] .sun-trust svg{background:#ffc93c26;color:#ffc93c}[data-theme="dark"] .sun-controls::before{background:#12291ad9;box-shadow:0 2px 8px #0008}}
-/* ==== List B, 1: the bulk page in the dark (style.css "List B, 1"). The band keeps its deep green; the adder's controls on the dark paper. */
+/* ==== List B, 1: the bulk page in the dark (style.css "List B, 1"). The band keeps its deep green; the cards are the shop's (dark above). */
 [data-theme="dark"] .bulk-key{background:radial-gradient(50% 120% at 100% 0,#24543499 0,#24543400 70%),var(--band-bg);box-shadow:0 16px 36px #0008,inset 0 0 0 1px #ffffff0d}
 [data-theme="dark"] .bulk-key-list span{color:#e6dfc9}
 [data-theme="dark"] .bulk-key-note{background:#ffc93c;color:#15130c}
-[data-theme="dark"] .bulk-adder{box-shadow:inset 0 0 0 1px var(--line),0 10px 28px #0006}
-[data-theme="dark"] .bulk-stepper input{background:#15130c1f}
-[data-theme="dark"] .bulk-pick-photo{background:#25231b}
+[data-theme="dark"] .bulk-card-step input{background:#15130c1f}
 /* ==== List B, 4: the flying box in the dark (fly.js). */
 [data-theme="dark"] .fly-dot{box-shadow:0 10px 24px #000a,0 0 0 3px #15130c}
 [data-theme="dark"] .bag-count.fly-lit{background:#fff;box-shadow:0 0 0 3px #ffc93c}

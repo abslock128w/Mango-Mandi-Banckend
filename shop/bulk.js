@@ -8,10 +8,12 @@
    checkout's own sign-in steps, review, pay by Razorpay payment link, or the test payment locally) and the order
    page /bulk/orders/:id (payment, receipt, cancel within 4 hours of paying for a full refund, refund).
    Money from these routes stays in paise (api.js `bulk…` calls) and is shown with bulkRs.
-   It also draws each tab's "How it works" cards (bulkKeyHTML: a hover panel with a mouse, tap-to-open on touch), puts
-   Mixed Variety Mangoes first in the variety lists and chooses it when the adder first shows (bulkVarietyOptions).
-   Loaded after pages.js and farm.js (it adds to PAGES; it sets the adder's first pick) and before app.js: other
-   top-level code only declares and listens. Styles: style.css (.bulk-key, .bulk-pick, List B; .fv-* for the farm visit
+   It also draws each tab's "How it works" cards (bulkKeyHTML: a hover panel with a mouse, tap-to-open on touch) and puts
+   Mixed Variety Mangoes first in the variety lists (bulkVarietyOrder: the cards, pages.js bulkCardHTML, and the farm visit's).
+   The delivery fee is said in one set of words everywhere it shows (pages.js BULK_FEE_WORDS, "Delivery fee: 10% of the
+   order value") and worked out to the paisa as the API does (pages.js bulkFee); the order page shows the API's own figures.
+   Loaded after pages.js and farm.js (it adds to PAGES) and before app.js: other
+   top-level code only declares and listens. Styles: style.css (.bulk-key, .bulk-card, List B; .fv-* for the farm visit
    page and the numbered sections, .bq-* for the Send enquiry steps and meter, change request 02). */
 
 PAGES.push([/^\/bulk\/orders\/([^/]+)\/?$/, (m) => signedInThen('Bulk order', () => bulkOrderView(decodeURIComponent(m[1])))])
@@ -22,7 +24,7 @@ const BULK_TABS = [
   { id: 'farm-visit', href: '/bulk/farm-visit', name: 'Farm visit', promise: ['250 kg+ mangoes', 'pick your own, stay free'] },
 ]
 let bulkTab = 'order'
-const bulkRs = (paise) => currency((Number(paise) || 0) / 100)
+const bulkRs = (paise) => bulkMoney((Number(paise) || 0) / 100)
 
 // ---- The tabs
 
@@ -92,7 +94,7 @@ function bulkKeyHTML(tab) {
     li('scale', `${BULK_ENQUIRY_MIN_KG} kg+ mangoes`, `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg of mangoes and more. From ${BULK_MIN_KG} kg you can also order and pay at the bulk price straight away.`),
     li('tag', 'A price for you', 'We start from the bulk price and quote you on WhatsApp. Your quote can be lower.'),
     li('check', 'Nothing paid now', 'Accept or decline the quote on your account. We call you to arrange delivery and payment.'),
-    li('truck', `Delivery: ${BULK_DELIVERY_PCT}% of the mangoes’ value`, 'Shown on the quote, with any extra costs such as special packaging.'),
+    li('truck', BULK_FEE_WORDS, 'Shown on the quote, with any extra costs such as special packaging.'),
   ] : tab === 'farm-visit' ? [
     li('scale', `${FARM_VISIT_MIN_KG} kg+ mangoes`, `Book ${FARM_VISIT_MIN_KG} kg or more of one variety for your visit.`),
     li('tree', 'Your stay is free', 'Stay at the farmhouse free for the night of your visit.'),
@@ -103,7 +105,7 @@ function bulkKeyHTML(tab) {
     li('scale', `${BULK_MIN_KG} kg minimum`, `Your list must reach ${BULK_MIN_KG} kg, in 5 kg or 10 kg boxes.`),
     li('tag', `Bulk price: about ${bulkDiscountWords()} off`, 'Lower than the shop price on every box, shown on each one. No waiting for a quote.'),
     li('check', 'Order and pay now', 'You pay the full amount online. Our team then calls you on WhatsApp to arrange the delivery.'),
-    li('calendar', `Delivered in ${BULK_DAYS}`, `Delivery is ${BULK_DELIVERY_PCT}% of the mangoes’ value, added to the total.`),
+    li('calendar', `Delivered in ${BULK_DAYS}`, `${BULK_FEE_WORDS}, added to the total.`),
     li('clock', `Cancel within ${hoursWord(cancelHours())} of paying`, 'For a full refund, until it is dispatched.'),
   ]
   const title = tab === 'enquiry' ? 'How enquiries work' : tab === 'farm-visit' ? 'How farm visits work' : 'How bulk orders work'
@@ -123,19 +125,10 @@ for (const type of ['mouseleave', 'focusout']) document.addEventListener(type, (
 
 // ---- The variety list (the owner, change request 01: "mixed mangoes pre-selected", "on top of the list")
 
-/** The mixed box comes first in the bulk lists and is the adder's pick when /bulk or /bulk/enquiry opens. */
+/** The mixed box comes first in the bulk lists: the first card on /bulk and /bulk/enquiry, the first mango on the farm visit. */
 const BULK_FIRST = 'Mixed Variety Mangoes'
-// pages.js adderHTML shows the variety in adder.variety; nothing chosen yet means the mixed box (when it is on sale).
-if (!adder.variety) adder.variety = BULK_FIRST
 /** Varieties in the bulk lists' order: the mixed box, then the single varieties A to Z. */
 const bulkVarietyOrder = (list) => [...list.filter((v) => v.name === BULK_FIRST), ...list.filter((v) => v.name !== BULK_FIRST).sort((a, b) => a.name.localeCompare(b.name))]
-/** The adder's <select id="bulk-variety"> options: the mixed box, then "Single varieties" A to Z, each with its bulk price
-    for a 5 kg box. "Choose a variety…" is there only while nothing is chosen, as a hint that can't be picked. */
-function bulkVarietyOptions(list, v) {
-  const row = (x) => { const five = bulkBoxes(x)[0], bp = bulkPriceFor(five.sku); return `<option value="${esc(x.name)}"${v && x.name === v.name ? ' selected' : ''}>${esc(x.name)} · ${currency(bp ? bp.bulk : five.price)} / 5 kg box</option>` }
-  const all = bulkVarietyOrder(list), first = all.filter((x) => x.name === BULK_FIRST), rest = all.filter((x) => x.name !== BULK_FIRST)
-  return (v ? '' : '<option value="" disabled selected>Choose a variety…</option>') + first.map(row).join('') + (rest.length ? (first.length ? `<optgroup label="Single varieties">${rest.map(row).join('')}</optgroup>` : rest.map(row).join('')) : '')
-}
 
 // ---- Bulk prices (GET /v1/bulk/prices, paise) as rupees, by the list's ids ("ALP-5", "ALP-5@10").
 
@@ -150,13 +143,6 @@ function loadBulkPrices() {
 /** { price, bulk, pct } in rupees for a list id, once the prices are in; else null. */
 const bulkPriceFor = (id) => (bulkPriceMap && bulkPriceMap.get(id)) || null
 const bulkDiscountWords = () => `${bulkPricePct ?? 25}%`
-/** A box's price on the adder: the shop's struck through and the bulk price. */
-function bulkPriceHTML(id, shop) {
-  const bp = bulkPriceFor(id)
-  return bp
-    ? `<strong class="bulk-price"><s aria-label="shop price ${currency(bp.price)}">${currency(bp.price)}</s> ${currency(bp.bulk)}<small> / box in bulk</small></strong>`
-    : `<strong>${currency(shop)}<small> / box</small></strong>`
-}
 /** A list line's money: shop price struck through, bulk price. */
 function bulkLineMoney(x) {
   const bp = bulkPriceFor(x.sku)
@@ -165,12 +151,12 @@ function bulkLineMoney(x) {
 /** Under the list: mangoes at bulk prices, what you save, and on the order tab delivery and the total to pay. */
 function bulkMoneyHTML(t) {
   if (!t.boxes || !t.priced) return t.boxes ? `<p class="bulk-money-note">${icon('info')}<span>Getting the bulk prices…</span></p>` : ''
-  const save = t.value - t.bulk, pct = t.value ? Math.round((save / t.value) * 100) : 0, fee = Math.round(t.bulk * BULK_DELIVERY_PCT / 100)
+  const save = t.value - t.bulk, pct = t.value ? Math.round((save / t.value) * 100) : 0, fee = bulkFee(t)
   const row = (dt, dd, cls = '') => `<div${cls ? ` class="${cls}"` : ''}><dt>${dt}</dt><dd>${dd}</dd></div>`
   if (bulkTab === 'enquiry') {
-    return `<dl class="bulk-money">${row('Mangoes at bulk prices', `<s>${currency(t.value)}</s> ${currency(t.bulk)}`)}${row('You save', `${currency(save)} (${pct}%)`, 'is-save')}</dl><p class="bulk-money-note">${icon('info')}<span>Your quote starts here and can be lower. Delivery (${BULK_DELIVERY_PCT}%) is added on the quote.</span></p>`
+    return `<dl class="bulk-money">${row('Mangoes at bulk prices', `<s>${currency(t.value)}</s> ${currency(t.bulk)}`)}${row('You save', `${currency(save)} (${pct}%)`, 'is-save')}</dl><p class="bulk-money-note">${icon('info')}<span>Your quote starts here and can be lower. ${BULK_FEE_WORDS}, added on the quote.</span></p>`
   }
-  return `<dl class="bulk-money">${row('Mangoes at bulk prices', `<s>${currency(t.value)}</s> ${currency(t.bulk)}`)}${row('You save', `${currency(save)} (${pct}%)`, 'is-save')}${row(`Delivery <small>${BULK_DELIVERY_PCT}% of the mangoes’ value</small>`, currency(fee))}${row('Total to pay', currency(t.bulk + fee), 'is-total')}</dl>`
+  return `<dl class="bulk-money">${row('Mangoes at bulk prices', `<s>${currency(t.value)}</s> ${currency(t.bulk)}`)}${row('You save', `${currency(save)} (${pct}%)`, 'is-save')}${row(`Delivery fee <small>(${BULK_FEE_SHARE})</small>`, bulkMoney(fee))}${row('Total to pay', bulkMoney(t.bulk + fee), 'is-total')}</dl>`
 }
 
 // ---- The order flow under the list: details → (sign in) → review → pay.
@@ -220,7 +206,7 @@ const bulkLinesHTML = () => bulkSummary().map((l) => {
 function bulkOrderDraw() {
   const box = $('#bulk-box')
   if (!box) return
-  const t = bulkTotals(), fee = Math.round(t.bulk * BULK_DELIVERY_PCT / 100), d = bulkDraft(), me = MM.profile() || {}
+  const t = bulkTotals(), fee = bulkFee(t), d = bulkDraft(), me = MM.profile() || {}
   const err = bf.error ? `<p class="prototype-tag bulk-error" role="alert">${esc(bf.error)}</p>` : ''
   if (bf.step === 'details') {
     const v = (k, fallback = '') => esc(d[k] ?? fallback)
@@ -246,13 +232,13 @@ function bulkOrderDraw() {
         <dl class="bulk-money">
           <div><dt>Mangoes at bulk prices <small>${t.kg} kg · ${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</small></dt><dd><s>${currency(t.value)}</s> ${currency(t.bulk)}</dd></div>
           <div class="is-save"><dt>You save</dt><dd>${currency(t.value - t.bulk)} (${t.value ? Math.round(((t.value - t.bulk) / t.value) * 100) : 0}%)</dd></div>
-          <div><dt>Delivery <small>${BULK_DELIVERY_PCT}% of the mangoes’ value</small></dt><dd>${currency(fee)}</dd></div>
-          <div class="is-total"><dt>Total to pay now</dt><dd>${currency(t.bulk + fee)}</dd></div>
+          <div><dt>Delivery fee <small>(${BULK_FEE_SHARE})</small></dt><dd>${bulkMoney(fee)}</dd></div>
+          <div class="is-total"><dt>Total to pay now</dt><dd>${bulkMoney(t.bulk + fee)}</dd></div>
         </dl>
         <p class="bulk-review-to">${icon('pin')}<span>${esc(d.name || '')}${d.business ? `, ${esc(d.business)}` : ''} · +91 ${esc(normPhone(d.phone))}<br>${esc(d.address || '')}, ${esc(d.city || '')} ${esc(d.pincode || '')}</span></p>
         <p class="bulk-pay-notice">${icon('info')}<span><strong>You pay the full amount now.</strong> Our team will call you on WhatsApp to arrange the delivery, usually within ${BULK_DAYS}.</span></p>
         <div class="co-cancel cancel-note" role="note"><span class="co-cancel-icon" aria-hidden="true">${icon('clock')}</span><div><p class="co-cancel-lead">You can cancel within ${h} of paying for a full refund.</p><p class="co-cancel-more">Only until it is dispatched. After that it can’t be cancelled here: message us and our team will help.${policyLink()}</p></div></div>
-        <button class="button primary full" type="button" data-bulk-pay ${bf.busy || !t.priced ? 'disabled' : ''}>${bf.busy ? 'Placing your order…' : `Pay ${currency(t.bulk + fee)} now`} ${bf.busy ? '' : icon('arrow')}</button>
+        <button class="button primary full" type="button" data-bulk-pay ${bf.busy || !t.priced ? 'disabled' : ''}>${bf.busy ? 'Placing your order…' : `Pay ${bulkMoney(t.bulk + fee)} now`} ${bf.busy ? '' : icon('arrow')}</button>
         ${t.priced ? '' : `<p class="bulk-add-why">${icon('lock')}<span>Getting today’s bulk prices. Try again in a moment.</span></p>`}
         <div class="bulk-review-more"><button type="button" class="text-button" data-bulk-details>Change details</button><button type="button" class="text-button" data-bulk-edit>Change the list</button></div>
       </section>`
@@ -286,7 +272,7 @@ function bulkReview() {
 
 async function bulkPay() {
   if (bf.busy) return
-  const t = bulkTotals(), d = bulkDraft(), shown = Math.round((t.bulk + Math.round(t.bulk * BULK_DELIVERY_PCT / 100)) * 100)
+  const t = bulkTotals(), d = bulkDraft(), shown = Math.round((t.bulk + bulkFee(t)) * 100)
   bf.key ||= MM.idem()['Idempotency-Key']
   bf.busy = true
   bf.error = ''
@@ -944,7 +930,7 @@ async function bulkOrderView(id, seq = ++sheetSeq, polls = 0) {
       <dl class="bulk-money">
         <div><dt>Mangoes at bulk prices <small>${x.quantityKg} kg · ${x.boxes} ${x.boxes === 1 ? 'box' : 'boxes'}</small></dt><dd>${bulkRs(o.mangoesPaise)}</dd></div>
         ${o.savingPaise ? `<div class="is-save"><dt>You saved</dt><dd>${bulkRs(o.savingPaise)}</dd></div>` : ''}
-        <div><dt>Delivery <small>${o.deliveryPct}% of the mangoes’ value</small></dt><dd>${bulkRs(o.deliveryPaise)}</dd></div>
+        <div><dt>Delivery fee <small>(${Number(o.deliveryPct) || BULK_DELIVERY_PCT}% of the order value)</small></dt><dd>${bulkRs(o.deliveryPaise)}</dd></div>
         <div class="is-total"><dt>${paid ? 'Total paid' : 'Total to pay'}</dt><dd>${bulkRs(paid ? o.paidPaise || o.amountPaise : o.amountPaise)}</dd></div>
       </dl>
       ${paid ? '<p class="page-note">This page is your payment receipt for the bulk order. A bill is not issued for bulk orders yet: ask our team on WhatsApp if you need one.</p>' : ''}

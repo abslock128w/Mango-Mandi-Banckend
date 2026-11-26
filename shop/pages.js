@@ -167,10 +167,10 @@ function cancelNote(o, canCancel) {
 
 // ---- The bulk page: three tabs under the heading (bulk.js): Bulk order (100 kg and above, ordered and paid now at bulk
 // prices), Send enquiry (250 kg+ mangoes, a quote: three numbered steps and a kg meter in the bar, CR2-05) and Farm visit
-// (250 kg+ mangoes, a farm visit enquiry: bulk.js). On the first two one
-// adder (a variety <select>, ripeness, 5 kg / 10 kg box, number of boxes) fills one bulk list (localStorage `mm-bulk`,
-// not the bag), shared by both tabs, shown under it with a stepper per line and both prices (the shop's struck through,
-// the bulk price from GET /v1/bulk/prices). The sticky bar (#pay-bar) offers the tab's one action: "Order and pay"
+// (250 kg+ mangoes, a farm visit enquiry: bulk.js). On the first two a grid of the shop's own product cards (one per
+// variety, each with its ripeness, 5 kg / 10 kg box and "Add to bulk list", then a stepper) fills one bulk list
+// (localStorage `mm-bulk`, not the bag), shared by both tabs, shown under it with a stepper per line and both prices (the
+// shop's struck through, the bulk price from GET /v1/bulk/prices). The sticky bar (#pay-bar) offers the tab's one action: "Order and pay"
 // from 100 kg (bulk.js bulkOrderStart), or "Send enquiry" from 250 kg (app.js bulkForm).
 
 const BULK_MIN_KG = 100
@@ -181,6 +181,15 @@ const BULK_ENQUIRY_MIN_TEXT = `Enquiries need at least ${BULK_ENQUIRY_MIN_KG} kg
 // double: id "<5 kg sku>@10" in the list, sent to the API as that sku with packKg 10, shown at twice the 5 kg price.
 const BULK_PACKS_KG = [5, 10]
 const BULK_DELIVERY_PCT = 10 // delivery on a bulk order, as a share of the mangoes' value (the API works out the real figure)
+/** The delivery fee in the same words wherever it shows (the owner, 26 Nov 2026): the "How it works" card, the list's
+ *  money, the bar, the review and the receipt. */
+const BULK_FEE_SHARE = `${BULK_DELIVERY_PCT}% of the order value`
+const BULK_FEE_WORDS = `Delivery fee: ${BULK_FEE_SHARE}`
+/** The list's delivery fee in rupees, worked out as the API does (mango-api bulk-orders.js orderMoney): to the paisa on the
+ *  mangoes at bulk prices, so the total shown is the total charged. */
+const bulkFee = (t) => Math.round((Math.round(t.bulk * 100) * BULK_DELIVERY_PCT) / 100) / 100
+/** Rupees for bulk money: whole rupees, or with the paise when there are any (a 10% fee can end in paise: ₹1,977.80). */
+const bulkMoney = (rs) => Math.round(rs * 100) % 100 ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(rs) : currency(rs)
 const BULK_DAYS = '5–7 days'
 const tenOf = (five) => ({ ...five, sku: `${five.sku}@10`, boxSize: '10kg', price: five.price * 2, base: five.sku, packKg: 10 })
 /** A bulk list id → the box it stands for (a real 5 kg sku, or its 10 kg bulk box). */
@@ -194,7 +203,6 @@ function bulkBoxes(v) {
   return five ? [five, tenOf(five)] : []
 }
 const BULK_MAX_BOXES = 5000 // the most boxes one line of the list holds
-const adder = { variety: '', stage: 'SEMI_RIPE', pack: 5, qty: 1 } // what the adder on /bulk is set to
 let bulkList = null
 
 /** The shop's catalogue, once GET /v1/products has answered (shelf.js loadProducts), or after 15 s without it. */
@@ -280,54 +288,92 @@ function bulkSummary() {
   })
 }
 
-// ---- The adder
+// ---- The cards (the owner, 26 Nov 2026: "like the normal shop"): the shop's own card (shelf.js cardHTML's markup and
+// classes, so it looks the same in both themes and on phones): photo, name, flavour line, price, box cards, the action and
+// "Piler · Semi-ripe". One card per variety with a 5 kg box, the mixed box first (bulk.js bulkVarietyOrder; "Most asked"
+// on the Send enquiry tab). Each card keeps its own ripeness and box size (bulkPick), shows the bulk price for that box
+// with the shop price struck through, and "Add to bulk list" (one box), which becomes a − n + stepper (the number can be
+// typed) for that box and ripeness once it is in the list. The photo does not open the product sheet: that sheet adds to
+// the bag. Styles: style.css "The bulk page's cards".
 
-const adderVariety = () => shelf.find((v) => v.name === adder.variety && bulkBoxes(v).length) || null
-const adderBox = (v) => bulkBoxes(v).find((s) => kgOf(s) === adder.pack) || bulkBoxes(v)[0]
-const adderStages = () => SOLD.filter((x) => SOLD_API.includes(x.apiStage))
-/** How many more boxes the list's line for the adder's choice can take. */
-function adderRoom(v) {
-  const s = adderBox(v), line = bulkLines().find((x) => x.sku === s.sku && x.stage === adder.stage)
-  return Math.max(0, BULK_MAX_BOXES - (line ? line.qty : 0))
+const bulkPick = {} // variety → { stage, pack } chosen on its card
+function bulkPickOf(v) {
+  const p = bulkPick[v.name] ||= { stage: 'SEMI_RIPE', pack: BULK_PACKS_KG[0] }
+  if (!SOLD_API.includes(p.stage)) p.stage = SOLD_API.includes('SEMI_RIPE') ? 'SEMI_RIPE' : SOLD_API[0]
+  if (!BULK_PACKS_KG.includes(p.pack)) p.pack = BULK_PACKS_KG[0]
+  return p
 }
-function adderFix() {
-  if (!adderStages().some((x) => x.apiStage === adder.stage)) adder.stage = adderStages().some((x) => x.apiStage === 'SEMI_RIPE') ? 'SEMI_RIPE' : adderStages()[0]?.apiStage
-  if (!BULK_PACKS_KG.includes(adder.pack)) adder.pack = BULK_PACKS_KG[0]
-  const v = adderVariety(), max = v ? Math.max(1, adderRoom(v)) : BULK_MAX_BOXES
-  adder.qty = Math.min(max, Math.max(1, Math.floor(Number(adder.qty)) || 1))
-  return max
-}
-const addsText = () => `${adder.qty} × ${adder.pack} kg = ${adder.qty * adder.pack} kg`
+const bulkBoxOf = (v, pack) => bulkBoxes(v).find((s) => kgOf(s) === pack) || bulkBoxes(v)[0]
+const bulkLineOf = (id, stage) => bulkLines().find((x) => x.sku === id && x.stage === stage) || null
+/** The varieties on the cards, in the bulk lists' order. */
+const bulkShelf = () => bulkVarietyOrder(shelf.filter((x) => bulkBoxes(x).length))
 
-function adderHTML() {
-  const max = adderFix(), v = adderVariety(), list = shelf.filter((x) => bulkBoxes(x).length)
-  const s = v && adderBox(v), st = stageOf(adder.stage), src = v && v.c.photos && v.c.photos[adder.stage], room = v ? adderRoom(v) : 0
-  const preview = v
-    ? `<div class="bulk-pick-photo fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${esc(v.name)}">${src ? `<img src="${src}" alt="" width="720" height="720" decoding="async">` : ''}${bulkTab === 'enquiry' && v.name === BULK_FIRST ? '<span class="bq-most">Most asked</span>' : ''}</div><div class="bulk-pick-copy"><p class="bulk-pick-kicker">Your pick</p><h3>${esc(v.name)}</h3><p>${esc(v.c.flavour)}</p><p class="bulk-pick-meta"><span>${st.stage}</span><span>${esc(kgText(s))} box</span>${bulkPriceHTML(s.sku, s.price)}</p></div>`
-    : `<div class="bulk-pick-photo is-empty" aria-hidden="true">${icon('mango')}</div><div class="bulk-pick-copy"><p class="bulk-pick-kicker">Your pick</p><h3>Choose a variety</h3><p>Pick one from the list: its picture and a line about it show here.</p></div>`
-  const why = !v ? 'Choose a variety first.' : room <= 0 ? `This line already has ${BULK_MAX_BOXES} boxes, the most one line can hold.` : ''
-  return `<div class="bulk-pick${v ? '' : ' is-empty'}">${preview}</div>
-    <div class="bulk-adder-form">
-      <label class="field bulk-variety">Variety<span class="bulk-select"><select id="bulk-variety">${bulkVarietyOptions(list, v)}</select>${icon('chevron')}</span></label>
-      <p class="pre-label" id="bulk-stage-label">Ripeness</p>
-      <div class="door-stages" role="group" aria-labelledby="bulk-stage-label">${adderStages().map((x) => `<button type="button" data-adder-stage="${x.apiStage}" aria-pressed="${x.apiStage === adder.stage}"><span class="dot ${x.id}"></span>${x.stage}</button>`).join('')}</div>
-      <p class="pre-label" id="bulk-box-label">Box size</p>
-      <div class="bulk-packs" role="group" aria-labelledby="bulk-box-label">${BULK_PACKS_KG.map((k) => { const b = v && bulkBoxes(v).find((x) => kgOf(x) === k); const bp = b && bulkPriceFor(b.sku); return `<button type="button" class="bulk-pack" data-adder-pack="${k}" aria-pressed="${adder.pack === k}"><strong>${k} kg box</strong>${b ? `<small>${bp ? `<s aria-label="shop price ${currency(b.price)}">${currency(b.price)}</s> ${currency(bp.bulk)}` : currency(b.price)} / box</small>` : ''}</button>` }).join('')}</div>
-      <p class="pre-label" id="bulk-qty-label">Number of boxes</p>
-      <div class="bulk-qty"><div class="card-stepper bulk-stepper" role="group" aria-labelledby="bulk-qty-label"><button type="button" data-adder-step="-1" aria-label="One box fewer" ${adder.qty <= 1 ? 'aria-disabled="true"' : ''}>−</button><input id="bulk-qty" type="number" inputmode="numeric" min="1" max="${max}" step="1" value="${adder.qty}" aria-labelledby="bulk-qty-label" aria-describedby="bulk-adds"><button type="button" data-adder-step="1" aria-label="One box more" ${adder.qty >= max ? 'aria-disabled="true"' : ''}>+</button></div><button type="button" class="door-more bulk-more" data-adder-step="10" aria-label="Ten boxes more">+10 boxes</button></div>
-      <p class="bulk-adds" id="bulk-adds" aria-live="polite">${icon('scale')}<span>${addsText()}</span></p>
-      <button type="button" class="button primary full bulk-add" data-adder-add ${why ? 'disabled aria-describedby="bulk-add-why"' : ''}>${icon(why ? 'lock' : 'box')}<span>Add to bulk list</span></button>
-      ${why ? `<p class="bulk-add-why" id="bulk-add-why">${icon('info')}<span>${why}</span></p>` : ''}
-    </div>`
+/** The card's price: the bulk price, the shop price struck through beside it and "/ 5 kg box in bulk" (shelf.js
+ *  priceHTML's look). Until GET /v1/bulk/prices answers: the shop price. */
+function bulkCardPrice(s) {
+  const bp = bulkPriceFor(s.sku), box = `${kgText(s)} box`
+  return bp
+    ? `${currency(bp.bulk)}<s class="price-was" aria-label="shop price ${currency(bp.price)}">${currency(bp.price)}</s><small>/ ${box} in bulk</small>`
+    : `${currency(s.price)}<small>/ ${box}</small>`
 }
 
-/** The bulk list under the adder: one line per variety, box and ripeness, with a stepper and Remove. */
+/** "Add to bulk list", or once this box and ripeness are in the list its − n + stepper (data-at="card", so bulkStep keeps
+ *  the focus on the card's own control and not on the list's). */
+function bulkCardAction(v) {
+  const p = bulkPickOf(v), s = bulkBoxOf(v, p.pack), st = stageOf(p.stage), line = bulkLineOf(s.sku, p.stage)
+  const what = esc(`${kgText(s)} boxes of ${st.stage.toLowerCase()} ${v.name}`)
+  if (!line) return `<button type="button" class="quick-add bulk-card-add" data-bulk-card-add="${esc(v.name)}" aria-label="Add a ${esc(kgText(s))} box of ${st.stage.toLowerCase()} ${esc(v.name)} to your bulk list">${icon('box')}<span>Add to bulk list</span></button>`
+  const key = `data-sku="${esc(s.sku)}" data-stage="${esc(p.stage)}" data-at="card"`
+  return `<div class="card-stepper bulk-card-step" role="group" aria-label="${what} in your bulk list"><button type="button" data-bulk-qty="-1" ${key} aria-label="${line.qty === 1 ? 'Take out' : 'One box fewer'}: ${what}">−</button><input class="bulk-card-qty" type="number" inputmode="numeric" min="0" max="${BULK_MAX_BOXES}" step="1" value="${line.qty}" ${key} aria-label="Number of ${what}"><button type="button" data-bulk-qty="1" ${key} aria-label="One box more: ${what}"${line.qty >= BULK_MAX_BOXES ? ' aria-disabled="true"' : ''}>+</button></div>`
+}
+
+/** A row of the shop's box cards with the glass lens behind the chosen one (shelf.js boxCards' look). */
+const bulkToggle = (label, buttons, i) => `<div class="box-cards bulk-card-toggle" role="group" aria-label="${label}" style="--n:${buttons.length};--i:${Math.max(0, i)}"><span class="box-lens" aria-hidden="true"></span>${buttons.join('')}</div>`
+
+function bulkCardHTML(v) {
+  const p = bulkPickOf(v), st = stageOf(p.stage), s = bulkBoxOf(v, p.pack), name = esc(v.name), src = v.c.photos && v.c.photos[p.stage]
+  const photo = `<span class="fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${name}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}</span>`
+  const tag = bulkTab === 'enquiry' && v.name === BULK_FIRST ? '<span class="bq-most">Most asked</span>' : ''
+  const stages = SOLD.map((x) => `<button type="button" class="box-card" data-bulk-card-stage="${x.apiStage}" aria-pressed="${x.apiStage === p.stage}"><strong><span class="dot ${x.id}" aria-hidden="true"></span>${x.stage}</strong></button>`)
+  const packs = bulkBoxes(v).map((b) => { const bp = bulkPriceFor(b.sku); return `<button type="button" class="box-card" data-bulk-card-pack="${kgOf(b)}" aria-pressed="${b.sku === s.sku}"><strong>${esc(kgText(b))}</strong><small>${currency(bp ? bp.bulk : b.price)}</small></button>` })
+  return `<article class="product-card bulk-card${bulkLineOf(s.sku, p.stage) ? ' is-in' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photo}${tag}</div><div class="product-info"><div class="product-topline"><h3><span>${name}</span></h3></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${bulkCardPrice(s)}</div>${bulkToggle(`${name} ripeness`, stages, SOLD.indexOf(st))}${bulkToggle(`${name} box size`, packs, bulkBoxes(v).findIndex((b) => b.sku === s.sku))}</div><div class="card-action">${bulkCardAction(v)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
+}
+
+/** A card after its ripeness, box or line changed: photo, price, action and status line, in place (the lens keeps sliding). */
+function bulkCardFill(card, v, pop = true) {
+  const p = bulkPickOf(v), st = stageOf(p.stage), s = bulkBoxOf(v, p.pack), src = v.c.photos && v.c.photos[p.stage]
+  card.dataset.kind = st.id
+  card.classList.toggle('is-in', !!bulkLineOf(s.sku, p.stage))
+  const photo = $('.fruit-photo', card), img = photo && $('img', photo)
+  if (photo) photo.setAttribute('aria-label', `${st.stage} ${v.name}`)
+  if (img && src && img.getAttribute('src') !== src) img.src = src
+  const price = $('.product-price', card), html = bulkCardPrice(s)
+  if (price.innerHTML !== html) { price.innerHTML = html; if (pop) window.Liquid?.pop(price, 0.35) }
+  const action = $('.card-action', card), act = bulkCardAction(v)
+  if (action.innerHTML !== act) action.innerHTML = act
+  $('.product-status span', card).textContent = `${v.c.region ? v.c.region + ' · ' : ''}${st.stage}`
+}
+
+/** A ripeness or box size chosen on a card. */
+function bulkCardSet(b) {
+  const card = b.closest('.bulk-card'), v = card && shelf.find((x) => x.name === card.dataset.variety)
+  if (!v) return
+  const p = bulkPickOf(v)
+  if (b.dataset.bulkCardStage) p.stage = b.dataset.bulkCardStage
+  else p.pack = Number(b.dataset.bulkCardPack)
+  const group = b.closest('.box-cards'), buttons = $$('.box-card', group)
+  buttons.forEach((x) => x.setAttribute('aria-pressed', x === b))
+  slideLens(group, '.box-lens', buttons.indexOf(b))
+  bulkCardFill(card, v)
+}
+
+/** The bulk list under the cards: one line per variety, box and ripeness, with a stepper and Remove. */
 function bulkListHTML() {
   const lines = bulkLines().filter((x) => bulkSku(x.sku)), t = bulkTotals(), ok = t.kg >= BULK_MIN_KG
   if (!lines.length) return `<section class="bulk-list is-empty" id="bulk-list" aria-labelledby="bulk-list-h"><h3 id="bulk-list-h" tabindex="-1">Your bulk list</h3><p>${icon('box')}<span>Nothing here yet. Choose a variety above and add your boxes.</span></p></section>`
   return `<section class="bulk-list" id="bulk-list" aria-labelledby="bulk-list-h"><h3 id="bulk-list-h" tabindex="-1">Your bulk list</h3><ul>${lines.map((x) => {
     const s = bulkSku(x.sku), st = stageOf(x.stage), what = esc(`${kgText(s)} boxes of ${st.stage.toLowerCase()} ${s.variety}`)
-    const key = `data-sku="${esc(x.sku)}" data-stage="${esc(x.stage)}"`
+    const key = `data-sku="${esc(x.sku)}" data-stage="${esc(x.stage)}" data-at="list"`
     return `<li class="bulk-line">${thumb(s.base || s.sku, x.stage, s.variety)}<div class="bulk-line-copy"><strong>${esc(s.variety)}</strong><small>${esc(kgText(s))} box · ${st.stage}</small></div><div class="bulk-line-qty"><div class="card-stepper" role="group" aria-label="${what} in your bulk list"><button type="button" data-bulk-qty="-1" ${key} aria-label="One box fewer">−</button><span aria-live="polite">${x.qty}</span><button type="button" data-bulk-qty="1" ${key} aria-label="One box more">+</button></div><strong class="bulk-line-kg">${x.qty * kgOf(s)} kg${bulkLineMoney(x)}</strong></div><button type="button" class="text-button bulk-line-remove" data-bulk-remove ${key} aria-label="Remove ${what} from your bulk list">Remove</button></li>`
   }).join('')}</ul><p class="bulk-list-total${ok ? ' is-ok' : ''}"><span>Total</span><strong>${t.kg} kg · ${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</strong></p>${bulkMoneyHTML(t)}</section>`
 }
@@ -338,7 +384,8 @@ function renderBulkGrid(focus) {
   if (!shelf.length) {
     grid.innerHTML = grid.dataset.waited
       ? `<div class="page-card empty-cart bag-empty empty-state">${icon('box')}<h2>The mangoes are a moment away.</h2><p>We couldn’t load the boxes just now. Try again in a minute.</p><button class="button primary bag-explore" data-bulk-retry>Try again ${icon('arrow')}</button></div>`
-      : `<div class="bulk-adder is-loading" aria-busy="true"><span class="sk-block"></span><span class="sk-block"></span></div>`
+      : `<div class="product-grid bulk-cards" aria-busy="true">${skeletonCards(4)}</div>`
+    grid.dataset.drawn = ''
     return
   }
   // A list saved before the 5 kg / 10 kg rule may hold other boxes: they leave it.
@@ -346,49 +393,59 @@ function renderBulkGrid(focus) {
     bulkList = bulkLines().filter((x) => BULK_PACKS_KG.includes(kgOf(bulkSku(x.sku) || {})))
     save('mm-bulk', bulkList)
   }
+  const cards = bulkShelf()
+  // The cards are drawn once for the tab, the varieties and the prices; after that a change to the list only redraws
+  // each card's action and the list, so the photos never flash.
+  const drawn = [bulkTab, cards.map((v) => v.name).join('|'), bulkPriceMap ? 'priced' : ''].join('#')
+  if (grid.dataset.drawn === drawn && $('#bulk-cards', grid)) {
+    $$('#bulk-cards .bulk-card', grid).forEach((card) => { const v = cards.find((x) => x.name === card.dataset.variety); if (v) bulkCardFill(card, v, false) })
+    $('#bulk-list', grid).outerHTML = bulkListHTML()
+    refocus(grid, focus)
+    return
+  }
   const intro = bulkTab === 'enquiry'
-    ? `Pick a variety, the ripeness and a <strong>5 kg or 10 kg box</strong>. Enquiries are for <strong>${BULK_ENQUIRY_MIN_KG} kg+ mangoes</strong>: we price your list and send a quote, which can be lower than the bulk price shown. Nothing is paid now.`
-    : `Pick a variety, the ripeness and a <strong>5 kg or 10 kg box</strong>. Bulk orders start at ${BULK_MIN_KG} kg, at <strong>bulk prices</strong> (the shop price is struck through), and you pay when you order.`
+    ? `Choose the ripeness and a <strong>5 kg or 10 kg box</strong> on each mango and add it to your list. Enquiries are for <strong>${BULK_ENQUIRY_MIN_KG} kg+ mangoes</strong>: we price your list and send a quote, which can be lower than the bulk price shown. Nothing is paid now.`
+    : `Choose the ripeness and a <strong>5 kg or 10 kg box</strong> on each mango and add it to your list. Bulk orders start at ${BULK_MIN_KG} kg, at <strong>bulk prices</strong> (the shop price is struck through), and you pay when you order.`
   // Send enquiry (change request 02, CR2-05): the section's head has its step number, as on the farm visit page.
   const title = bulkTab === 'enquiry' ? '<span class="fv-num" aria-hidden="true">1</span>Build your bulk list' : 'Build your bulk list'
-  grid.innerHTML = `<div class="door-intro${bulkTab === 'enquiry' ? ' bq-head' : ''}"><h2 class="flow-head${bulkTab === 'enquiry' ? ' fv-sec-h' : ''}">${title}</h2><p>${intro}</p></div><div class="bulk-adder">${adderHTML()}</div>${bulkListHTML()}`
+  grid.innerHTML = `<div class="door-intro${bulkTab === 'enquiry' ? ' bq-head' : ''}"><h2 class="flow-head${bulkTab === 'enquiry' ? ' fv-sec-h' : ''}">${title}</h2><p>${intro}</p></div><div class="product-grid bulk-cards" id="bulk-cards">${cards.map(bulkCardHTML).join('')}</div>${bulkListHTML()}`
+  grid.dataset.drawn = drawn
   refocus(grid, focus)
 }
 
-/** "Add to bulk list": the adder's boxes join the list (the same variety, ripeness and box adds to its line). */
-function bulkAdd() {
-  const v = adderVariety()
+/** "Add to bulk list" on a card: one box of the card's box and ripeness joins the list (its line, if it has one). */
+function bulkAdd(b) {
+  const card = b.closest('.bulk-card'), v = card && shelf.find((x) => x.name === card.dataset.variety)
   if (!v) return
-  const typed = $('#bulk-qty')
-  if (typed) adder.qty = Number(typed.value)
-  adderFix()
-  const room = adderRoom(v)
-  if (room <= 0) return
-  const s = adderBox(v), n = Math.min(room, adder.qty), list = bulkLines(), stage = adder.stage
+  const p = bulkPickOf(v), s = bulkBoxOf(v, p.pack), list = bulkLines(), stage = p.stage
   let line = list.find((x) => x.sku === s.sku && x.stage === stage)
+  if (line && line.qty >= BULK_MAX_BOXES) return
   if (!line) list.push(line = { sku: s.sku, stage, qty: 0 })
-  line.qty += n
+  line.qty += 1
   save('mm-bulk', list)
-  const photo = $('#bulk-grid .bulk-pick-photo'), from = photo && photo.getBoundingClientRect(), src = photo && $('img', photo)?.src
-  adder.qty = 1
-  renderBulkGrid({ 'data-adder-add': '' })
+  const photo = $('.fruit-photo', card), from = photo && photo.getBoundingClientRect(), src = photo && $('img', photo)?.src
+  renderBulkGrid({ 'data-bulk-qty': '1', 'data-sku': s.sku, 'data-stage': stage, 'data-at': 'card' })
   bulkBar()
-  toast(`${n} × ${kgText(s)} ${stageOf(stage).stage.toLowerCase()} ${v.name} added to your bulk list`)
+  toast(`1 × ${kgText(s)} ${stageOf(stage).stage.toLowerCase()} ${v.name} added to your bulk list`)
   if (window.MMFly && from) MMFly.fly({ from, src, to: () => $('#pay-bar .pay-bar-total') || $('#pay-bar') })
   bulkFollow()
 }
 
-/** A change to the adder (ripeness, box, number): drawn again, focus kept on the control used. */
-function adderSet(b) {
-  const d = b.dataset
-  if (d.adderStage) adder.stage = d.adderStage
-  else if (d.adderPack) adder.pack = Number(d.adderPack)
-  else if (d.adderStep) {
-    const typed = $('#bulk-qty')
-    if (typed) adder.qty = Number(typed.value) || 1
-    adder.qty += Number(d.adderStep)
-  }
-  renderBulkGrid(usedAttrs(b, ['data-adder-stage', 'data-adder-pack', 'data-adder-step']))
+/** A number typed on a card's stepper: that line becomes that many boxes (0 takes it out). Settled without redrawing the
+ *  card while the field is in use (the tap that blurred it may be on the card's own + or −). */
+function bulkCardTyped(t) {
+  const list = bulkLines(), line = list.find((x) => x.sku === t.dataset.sku && x.stage === t.dataset.stage)
+  if (!line) return
+  const n = Math.floor(Number(t.value))
+  if (t.value.trim() === '' || !(n >= 0)) { t.value = line.qty; return }
+  if (n === 0) list.splice(list.indexOf(line), 1)
+  else line.qty = Math.min(BULK_MAX_BOXES, n)
+  t.value = n === 0 ? 0 : line.qty
+  save('mm-bulk', list)
+  if (n === 0) renderBulkGrid(document.activeElement === t ? { 'data-bulk-card-add': t.closest('.bulk-card')?.dataset.variety || '' } : null)
+  else $('#bulk-list').outerHTML = bulkListHTML()
+  bulkBar()
+  bulkFollow()
 }
 
 /** The sticky bar on /bulk: the list's weight and boxes, and the tab's action: "Order and pay" (from 100 kg) or "Send
@@ -404,11 +461,11 @@ function bulkBar() {
     return setBar(`<div class="pay-bar-row is-sent"><p class="pay-bar-sent" role="status">${icon('check')}<span>Sent · we will be in touch on WhatsApp</span></p></div>`)
   }
   if (bulkFlowOpen()) return setBar('')
-  const fee = Math.round(t.bulk * BULK_DELIVERY_PCT / 100)
+  const fee = bulkFee(t)
   const hint = ok
-    ? `<p class="pay-bar-hint is-next is-ok" role="status">${icon('check')}<span>${t.kg} kg at bulk prices${t.priced ? ` · ${currency(t.bulk)} + ${currency(fee)} delivery` : ''}. You pay now; delivery in ${BULK_DAYS}.</span></p>`
+    ? `<p class="pay-bar-hint is-next is-ok" role="status">${icon('check')}<span>${t.kg} kg at bulk prices${t.priced ? `, ${bulkMoney(t.bulk)}` : ''}. ${BULK_FEE_WORDS}${t.priced ? `, ${bulkMoney(fee)}` : ''}. You pay now; delivery in ${BULK_DAYS}.</span></p>`
     : `<p class="pay-bar-hint is-next" role="status" id="bulk-order-why">${icon('lock')}<span>Bulk orders start at ${BULK_MIN_KG} kg${t.kg ? ` · add ${BULK_MIN_KG - t.kg} kg more` : ''}.</span></p>`
-  setBar(`${hint}<div class="pay-bar-row bulk-bar"><div class="pay-bar-total"><small>${ok && t.priced ? 'Total to pay' : 'Your bulk list'}</small><strong>${ok && t.priced ? `<span>${currency(t.bulk + fee)}</span>` : `<span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span>`}</strong></div><div class="bulk-bar-go"><button class="button primary pay-bar-go" id="bulk-order" ${ok ? '' : `disabled aria-describedby="bulk-order-why"`}>${ok ? '' : icon('lock')}<span>Order and pay</span>${ok ? icon('arrow') : ''}</button></div></div>`)
+  setBar(`${hint}<div class="pay-bar-row bulk-bar"><div class="pay-bar-total"><small>${ok && t.priced ? 'Total to pay' : 'Your bulk list'}</small><strong>${ok && t.priced ? `<span>${bulkMoney(t.bulk + fee)}</span>` : `<span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span>`}</strong></div><div class="bulk-bar-go"><button class="button primary pay-bar-go" id="bulk-order" ${ok ? '' : `disabled aria-describedby="bulk-order-why"`}>${ok ? '' : icon('lock')}<span>Order and pay</span>${ok ? icon('arrow') : ''}</button></div></div>`)
 }
 
 /** The Send enquiry tab's three steps (change request 02, CR2-05), under the tabs: 1 while the list is built, 2 once the
@@ -459,9 +516,12 @@ function bulkStep(b) {
   line.qty = Math.min(5000, line.qty + delta)
   if (line.qty <= 0) list.splice(list.indexOf(line), 1)
   save('mm-bulk', list)
-  const focus = usedAttrs(b, ['data-bulk-qty', 'data-sku', 'data-stage'])
+  // data-at: the card's stepper or the list's, so the focus stays on the one that was used.
+  const focus = usedAttrs(b, ['data-bulk-qty', 'data-sku', 'data-stage', 'data-at']), card = b.closest('.bulk-card')?.dataset.variety
   renderBulkGrid(focus)
-  if (!$('#bulk-grid').contains(document.activeElement)) refocus($('#bulk-grid'), { 'data-bulk-qty': '1', 'data-sku': sku, 'data-stage': stage })
+  if (!$('#bulk-grid').contains(document.activeElement)) refocus($('#bulk-grid'), { 'data-bulk-qty': '1', 'data-sku': sku, 'data-stage': stage, ...(b.dataset.at ? { 'data-at': b.dataset.at } : {}) })
+  // A card's last box taken out: its "Add to bulk list" again.
+  if (card && !$('#bulk-grid').contains(document.activeElement)) refocus($('#bulk-grid'), { 'data-bulk-card-add': card })
   if (!$('#bulk-grid').contains(document.activeElement)) $('#bulk-list-h')?.focus()
   bulkBar()
   bulkFollow()
@@ -542,8 +602,8 @@ document.addEventListener('click', (e) => {
   const b = e.target instanceof Element ? e.target.closest('button,a') : null
   if (!b) return
   const d = b.dataset
-  if (d.adderStage || d.adderPack || d.adderStep) adderSet(b)
-  else if (b.hasAttribute('data-adder-add')) bulkAdd()
+  if (d.bulkCardStage || d.bulkCardPack) bulkCardSet(b)
+  else if (d.bulkCardAdd) bulkAdd(b)
   else if (b.hasAttribute('data-bulk-remove')) {
     const line = bulkLines().find((x) => x.sku === d.sku && x.stage === d.stage)
     if (line) { b.dataset.bulkQty = String(-line.qty); bulkStep(b) }
@@ -563,39 +623,14 @@ document.addEventListener('click', (e) => {
     $('#bulk-grid')?.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
   }
 })
-// The adder's variety (a <select>) and its typed number of boxes.
+// A number typed on a card's stepper; Enter settles it too (and keeps the field).
 document.addEventListener('change', (e) => {
-  const t = e.target
-  if (t.id === 'bulk-variety') {
-    adder.variety = t.value
-    renderBulkGrid({ id: 'bulk-variety' })
-  } else if (t.id === 'bulk-qty') {
-    // Settled in place (no redraw: the tap that blurred the field may be on "Add to bulk list").
-    adder.qty = Number(t.value)
-    const max = adderFix()
-    t.value = adder.qty
-    const out = $('#bulk-adds span')
-    if (out) out.textContent = addsText()
-    document.querySelectorAll('#bulk-grid [data-adder-step]').forEach((b) => {
-      const off = (b.dataset.adderStep === '-1' && adder.qty <= 1) || (b.dataset.adderStep === '1' && adder.qty >= max)
-      if (off) b.setAttribute('aria-disabled', 'true')
-      else b.removeAttribute('aria-disabled')
-    })
-  }
+  if (e.target instanceof HTMLInputElement && e.target.classList.contains('bulk-card-qty')) bulkCardTyped(e.target)
 })
-// Enter in the number of boxes adds them, as the button does.
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || e.target.id !== 'bulk-qty') return
+  if (e.key !== 'Enter' || !(e.target instanceof HTMLInputElement) || !e.target.classList.contains('bulk-card-qty')) return
   e.preventDefault()
-  bulkAdd()
-})
-document.addEventListener('input', (e) => {
-  if (e.target.id !== 'bulk-qty') return
-  const n = Math.floor(Number(e.target.value))
-  if (!(n >= 1)) return
-  adder.qty = Math.min(Number(e.target.max) || BULK_MAX_BOXES, n)
-  const out = $('#bulk-adds span')
-  if (out) out.textContent = addsText()
+  bulkCardTyped(e.target)
 })
 // Another tab changed the bulk list: follow it.
 window.addEventListener('storage', (e) => {
@@ -1234,7 +1269,7 @@ function bulkItem(x, bare = false) {
     ${q && x.status !== 'CLOSED' ? `<div class="bq-quote" aria-label="Quote for ${esc(orderNo(x.number))}">
       <ul class="bq-lines">${q.lines.map((l) => `<li><span>${esc(l.label)} <small>× ${l.qty} @ ${currency(l.unitPrice)}</small></span><strong>${currency(l.linePrice)}</strong></li>`).join('')}
       ${q.extras.map((e) => `<li class="bq-extra"><span>${esc(e.label)}</span><strong>${paise(e.amount)}</strong></li>`).join('')}
-      ${q.deliveryFee ? `<li class="bq-extra"><span>Delivery <small>${Number(q.deliveryPct) || BULK_DELIVERY_PCT}% of the order value</small></span><strong>${paise(q.deliveryFee)}</strong></li>` : ''}</ul>
+      ${q.deliveryFee ? `<li class="bq-extra"><span>Delivery fee <small>(${Number(q.deliveryPct) || BULK_DELIVERY_PCT}% of the order value)</small></span><strong>${paise(q.deliveryFee)}</strong></li>` : ''}</ul>
       ${q.note ? `<p class="bq-note">${esc(q.note)}</p>` : ''}
       <p class="bq-total"><span>Total${q.validUntil ? ` <small>valid until ${fmtDate(q.validUntil)}</small>` : ''}</span><strong>${currency(q.total)}</strong></p>
       ${open ? `<div class="bq-actions"><button class="button primary" data-bulk-accept="${esc(x.id)}">Accept quote ${icon('check')}</button><button class="button secondary" data-bulk-decline="${esc(x.id)}">Decline</button></div>
