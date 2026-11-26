@@ -118,6 +118,14 @@ function birdPhrase(ctx, dest, t0, segs, gap) {
   }
   o.connect(g).connect(dest); o.start(t0); o.stop(t + 0.05)
 }
+/** Offline renders still running. A frame cannot be taken off its page while one runs: the browser waits for the render
+ *  to finish (seconds, on the page's main thread), so closing the film (Sound.close) suspends them first. */
+const renders = new Set()
+function stopRenders() {
+  for (const off of renders) { try { off.suspend(Math.ceil((off.currentTime + 0.05) * off.sampleRate / 128) * 128 / off.sampleRate).catch(() => {}) } catch { /* about to finish anyway */ } }
+  renders.clear()
+}
+
 /** Render the instrument once: every note the piece uses, and two bird phrases, each with its room on it. */
 async function renderKit(sr) {
   const C = window.OfflineAudioContext || window.webkitOfflineAudioContext
@@ -134,7 +142,9 @@ async function renderKit(sr) {
   far.connect(farLP); farLP.connect(off.destination); farLP.connect(rev); farLP.connect(farWet); farWet.connect(rev)
   birdPhrase(off, far, N * NOTE_LEN + 0.05, [[2700, 2300, 0.12], [2500, 2050, 0.15], [2700, 2300, 0.12], [2500, 2050, 0.16]], 0.09)
   birdPhrase(off, far, (N + 1) * NOTE_LEN + 0.05, [[2100, 2600, 0.14], [2600, 2300, 0.1], [2000, 2700, 0.2]], 0.05)
+  renders.add(off)
   const all = await off.startRendering()
+  renders.delete(off)
   const cut = (k) => {
     const b = off.createBuffer(2, len, sr)
     for (let c = 0; c < 2; c++) { const d = all.getChannelData(c).slice(k * len, (k + 1) * len), f = Math.floor(sr * 0.25); for (let i = 0; i < f; i++) d[len - 1 - i] *= i / f; b.copyToChannel(d, c) }
@@ -309,6 +319,7 @@ export class Sound {
   }
   /** Leaving the page: stop everything and give the audio device back. */
   close() {
+    stopRenders()
     clearInterval(this.timer); clearTimeout(this.sleep)
     GESTURES.forEach((ev) => removeEventListener(ev, this.wake, { capture: true, passive: true }))
     document.removeEventListener('visibilitychange', this.onVis)

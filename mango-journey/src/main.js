@@ -218,11 +218,20 @@ async function boot() {
   const total = Object.keys(STAGE_MODS).length + N + (sound ? 1 : 0)
   let done = 0, stepAt = performance.now()
   const step = (label) => {
+    if (MM.destroyed) throw new Error('closed')
     const now = performance.now()
     MM.steps.push([label, Math.round(now - stepAt)]); stepAt = now
     setLoad(++done / total)
   }
-  const soundReady = sound ? sound.prepare().then(() => step('music'), () => step('music')) : null
+  const soundReady = sound ? sound.prepare().then(() => step('music'), () => step('music')).catch(() => { /* closed */ }) : null
+  // Closed while still loading (the shop's page was left): the music's render and the graphics context stop here,
+  // and no further step runs. The film's own destroy (run) replaces this once it is ready.
+  MM.destroy = () => {
+    if (MM.destroyed) return
+    MM.destroyed = true
+    sound?.close()
+    try { engine.renderer.forceContextLoss() } catch { /* already gone */ }
+  }
 
   const stages = await loadStages(engine, step)
   const S = STAGE_OF.map((k) => stages[k])
@@ -706,6 +715,7 @@ function run(engine, S, film, sound) {
 const reducedPref = matchMedia('(prefers-reduced-motion: reduce)').matches
 
 boot().catch((e) => {
+  if (MM.destroyed) return
   console.error(e)
   MM.errors.push(String(e))
   tell({ failed: true })

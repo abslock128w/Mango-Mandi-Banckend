@@ -6,17 +6,23 @@
       screen while it is painted once, so the entrance's first frame has nothing left to draw from scratch; then the
       cover fades and "50 years" makes its entrance. Nothing here waits on the film.
    2. The film (One Mango, built from mango-journey/ into shop/one-mango/ and played in a frame) is only asked for once
-      the opening is on screen, in an idle moment after its first frames: it fetches its code, builds every chapter,
-      compiles every shader, uploads every texture and prepares its music, and reports how far it is (a fraction, by
-      message). The "Begin the film" button shows that ("Begin the film · loading 40%", filling as it goes); pressed
-      early it says "Starting… 40%" and begins the moment the film is ready. No word from the film for LX_STALL and the
-      line under it says it is still loading. Once ready, Begin (or, a few seconds after the entrance, nobody having
-      pressed it: muted) flies the camera through the zero of the 50 into the film, which then plays on its own with
-      small controls of its own. Nothing scrolls. The automatic start never fires before the film is ready.
+      the visitor is plainly staying: the entrance has played, the tab is in view, and they have been here LX_DWELL (or
+      scrolled, swiped or pressed a key on the opening, or pressed Begin, which asks for it at once); then in an idle
+      moment. The frame is same-origin, so the film shares this page's main thread while it loads: a quick visit never
+      pays for it. It fetches its code, builds every chapter, compiles every shader, uploads every texture and prepares
+      its music, and reports how far it is (a fraction, by message). The "Begin the film" button shows that ("Begin
+      the film · loading 40%", filling as it goes); pressed early it says "Starting… 40%" and begins the moment the
+      film is ready. No word from the film for LX_STALL and the line under it says it is still loading. Once ready,
+      Begin (or, a few seconds after the entrance, nobody having pressed it: muted) flies the camera through the zero
+      of the 50 into the film, which then plays on its own with small controls of its own. Nothing scrolls. The automatic start never fires before the film is ready.
    3. Not ready within LX_FILM_WAIT, or the film failing: the frame is dropped and the button becomes "Play the film",
       a plain link to the film's own page ("Read it as a story" where the film can only show its stills).
-   4. Leaving the page parks the film (paused, drawing nothing, music held; a film still loading carries on) for a few
-      minutes: coming back within that time skips its loading. After that it is closed and its graphics memory given back.
+   4. Leaving the page (another route, the back button, or the tab going away: pagehide) stops everything this visit
+      started, at once (lxStop): the film is closed (its loop, music and graphics context first, then the frame is
+      blanked and removed, so a film still loading stops loading), and every listener, timer, frame callback, idle
+      callback, tween, the pollen's worker and the photo preload go with it. Each visit is one handle (lxMount); a
+      promise that settles after the visit is over (a font, the photo, a frame, the film's word) finds it ended and
+      does nothing. Coming back mounts the page afresh.
    /legacy/story and /legacy/film are older addresses; both open this page.
 
    Static (.lx-static, the fallback): prefers-reduced-motion, no GSAP, or anything in the motion setup throwing. The
@@ -29,14 +35,40 @@ const LX_TITLE = 'Our legacy · VMR Mangoes'
 const LX_HOME_TITLE = document.title
 const LXO_SRC = '/one-mango/index.html?embed=1'
 const LX_AUTO = 3000 // ms after the entrance: nobody pressed Begin, so the film starts by itself (muted)
+const LX_AUTO_MIN = 1200 // ms at least between the film being ready and starting by itself
 const LX_FLY = 1.6 // s: the fly-through the zero into the film
-const LX_PARK = 180000 // ms a parked film is kept for a return visit
+const LX_DWELL = 1500 // ms on the page before the film is asked for (with the entrance played and the tab in view)
 const LX_LIGHT = 800 // ms at most the opening waits for its own fonts and photo (after that they swap in as they come)
 const LX_FILM_WAIT = 45000 // ms the film may take to be ready before the button opens the film's own page instead
 const LX_STALL = 8000 // ms with no word from a loading film before the line says it is still loading
 const LX_PLAY = '/one-mango/index.html?play', LX_STILL = '/one-mango/index.html?still'
 
-let lxKill = []
+/** One visit's handle. Everything the page starts goes through it (listeners on one AbortController, timers, frame and
+   idle callbacks, and kills: what else to undo), so lxStop ends all of it at once. A timer or frame callback of an
+   ended visit never runs, so the promises built on them (lxFrames, lxTimeout) never settle and nothing after them runs. */
+let lxM = null
+function lxMount() {
+  const ac = new AbortController(), timers = new Set(), rafs = new Set(), idles = new Set(), kills = []
+  const M = {
+    kills,
+    live: () => lxM === M,
+    on: (target, type, fn, opts = {}) => target.addEventListener(type, fn, { ...opts, signal: ac.signal }),
+    timeout: (fn, ms) => { const id = setTimeout(() => { timers.delete(id); if (M.live()) fn() }, ms); timers.add(id); return id },
+    clear: (id) => { if (!id) return; clearTimeout(id); timers.delete(id) },
+    raf: (fn) => { const id = requestAnimationFrame((t) => { rafs.delete(id); if (M.live()) fn(t) }); rafs.add(id); return id },
+    idle: (fn, ms = 1000) => {
+      if (!window.requestIdleCallback) return M.timeout(fn, 200)
+      const id = requestIdleCallback(() => { idles.delete(id); if (M.live()) fn() }, { timeout: ms }); idles.add(id); return id
+    },
+    end: () => {
+      ac.abort()
+      timers.forEach((id) => clearTimeout(id)); rafs.forEach((id) => cancelAnimationFrame(id)); idles.forEach((id) => cancelIdleCallback(id))
+      timers.clear(); rafs.clear(); idles.clear()
+      kills.splice(0).reverse().forEach((f) => { try { f() } catch {} })
+    },
+  }
+  return M
+}
 
 function legacyView(at = '') {
   lxStop()
@@ -46,7 +78,7 @@ function legacyView(at = '') {
   document.documentElement.classList.add('lx-on')
   const root = $('.lx')
   if (lxMotionOk()) {
-    try { lxRun(root, { soon: at === 'film' }); return } catch (err) {
+    try { lxRun(root, lxM = lxMount(), { soon: at === 'film' }); return } catch (err) {
       // Anything going wrong in the motion setup leaves the static page: the opening as a still and a plain way to the film.
       console.warn('Legacy page: motion off', err)
       lxStop({ keepPage: true })
@@ -57,10 +89,8 @@ function legacyView(at = '') {
 }
 
 const lxMotionOk = () => !matchMedia('(prefers-reduced-motion: reduce)').matches && Boolean(window.gsap)
-const lxYield = () => (window.scheduler && scheduler.yield ? scheduler.yield() : new Promise((r) => setTimeout(r, 0)))
-const lxFrames = (n = 1) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f) })
-const lxTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))])
-const lxIdle = (f, ms = 1000) => (window.requestIdleCallback ? requestIdleCallback(f, { timeout: ms }) : setTimeout(f, 200))
+const lxFrames = (M, n = 1) => new Promise((r) => { const f = () => (--n <= 0 ? r() : M.raf(f)); M.raf(f) })
+const lxTimeout = (M, p, ms) => Promise.race([p, new Promise((r) => M.timeout(r, ms))])
 const LX_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.500v13l10-6.500z"/></svg>'
 
 /** Letters as spans, each inside its own mask (they rise from behind a baseline). */
@@ -111,27 +141,22 @@ function lxPlain(root) {
   $('.lxo-plain', root).hidden = false
 }
 
-// ---- The film's frame. It lives outside the page view (a fixed layer under the shop's pages), so it can outlive a
-// visit: leaving parks it, coming back within LX_PARK finds it ready. Only one exists. The layer (lxFilmHost) is cheap
-// and made at once: it is the opening's night, and the fly-through moves it. The frame (lxFilmLoad) is the heavy part
-// and is only made once the opening is on screen.
-const lxFilm = { host: null, frame: null, parkT: 0 }
+// ---- The film's frame. It lives outside the page view (a fixed layer under the shop's pages), one at a time, for one
+// visit. The layer (lxFilmHost) is cheap and made at once: it is the opening's night, and the fly-through moves it.
+// The frame (lxFilmLoad) is the heavy part and is only made once the visitor is staying (lxRun's want).
+const lxFilm = { host: null, frame: null }
 const lxFilmMM = () => { try { return lxFilm.frame && lxFilm.frame.contentWindow && lxFilm.frame.contentWindow.__mm } catch { return null } }
 function lxFilmHost() {
-  clearTimeout(lxFilm.parkT)
-  const mm = lxFilmMM()
-  if (lxFilm.frame && (!lxFilm.frame.isConnected || (mm && mm.destroyed))) lxFilmDrop() // gone: a fresh one loads
   if (!lxFilm.host || !lxFilm.host.isConnected) {
     lxFilm.host?.remove()
     const h = lxFilm.host = document.createElement('div')
     h.className = 'lxo-host'
     document.body.prepend(h)
   }
-  lxFilm.host.classList.remove('is-parked', 'is-docked')
   return lxFilm.host
 }
 function lxFilmLoad() {
-  if (lxFilm.frame) return lxFilm.frame // parked from an earlier visit: ready, or still loading
+  if (lxFilm.frame) return lxFilm.frame
   const h = lxFilmHost()
   const f = lxFilm.frame = document.createElement('iframe')
   f.className = 'lxo-frame'
@@ -142,24 +167,28 @@ function lxFilmLoad() {
   h.appendChild(f)
   return f
 }
-function lxFilmPark() {
-  if (!lxFilm.host) return
-  try { lxFilmMM()?.park?.() } catch {}
-  lxFilm.host.classList.add('is-parked')
-  lxFilm.host.classList.remove('is-docked')
-  if (lxFilm.frame) lxFilm.frame.tabIndex = -1
-  clearTimeout(lxFilm.parkT)
-  lxFilm.parkT = setTimeout(lxFilmClose, LX_PARK)
-}
-/** The film goes, its layer stays: the film stops its loop and its music and gives its graphics context back first. */
+/** The film goes, its layer stays. Ready, it stops its loop and music and gives its graphics context back (destroy);
+   still loading (no destroy yet), its renderer, once made, loses its context here. Then the frame is stopped, blanked
+   and removed, which ends its loading where it is. */
 function lxFilmDrop() {
-  try { lxFilmMM()?.destroy?.() } catch {}
-  lxFilm.frame?.remove()
+  const f = lxFilm.frame
   lxFilm.frame = null
+  if (!f) return
+  let w = null
+  try { w = f.contentWindow } catch {}
+  try {
+    const mm = w && w.__mm
+    if (mm && mm.destroy) mm.destroy()
+    else mm?.engine?.renderer?.forceContextLoss?.()
+  } catch {}
+  try { w.document.querySelectorAll('video, audio').forEach((m) => { m.pause(); m.removeAttribute('src'); m.load() }) } catch {}
+  try { w.stop() } catch {}
+  f.src = 'about:blank'
+  f.remove()
 }
 function lxFilmClose() {
-  clearTimeout(lxFilm.parkT)
   lxFilmDrop()
+  if (lxFilm.host && window.gsap) gsap.killTweensOf(lxFilm.host)
   lxFilm.host?.remove()
   lxFilm.host = null
 }
@@ -255,6 +284,8 @@ function lxPollenEngine(canvas, near, opts) {
     size,
     ptr: (x, y) => { ptr.x = x; ptr.y = y },
     run: (on) => { if (on && !running) { running = true; raf = opts.raf(frame) } else if (!on && running) { running = false; opts.caf(raf) } },
+    // done for good (drawn here, not in a worker): the motes and both canvases' pixels are let go
+    free: () => { running = false; opts.caf(raf); parts.length = 0; motes.length = 0; canvas.width = canvas.height = near.width = near.height = 0 },
   }
 }
 
@@ -278,11 +309,11 @@ function lxPollenWorker() {
   }
 }
 
-function lxPollen(canvas, near, track) {
+function lxPollen(canvas, near, M) {
   // drawn at one canvas pixel per CSS pixel whatever the screen: soft glowing dust loses nothing, and a 2x screen would
   // otherwise fill four times the pixels on every frame (it was the costliest thing on this screen)
   const measure = () => [canvas.clientWidth, canvas.clientHeight, 1, innerWidth, innerHeight]
-  let send, worker = null
+  let send, worker = null, eng = null
   try {
     if (!(window.Worker && window.OffscreenCanvas && canvas.transferControlToOffscreen && typeof OffscreenCanvas.prototype.getContext === 'function')) throw 0
     const code = `${lxNoise};${lxPollenEngine};(${lxPollenWorker})()`
@@ -294,8 +325,8 @@ function lxPollen(canvas, near, track) {
     send = (m) => { if (worker) worker.postMessage(m) }
   } catch {
     worker = null
-    const eng = lxPollenEngine(canvas, near, { raf: (f) => requestAnimationFrame(f), caf: (id) => cancelAnimationFrame(id) })
-    send = (m) => { if (m.size) eng.size(...m.size); if (m.ptr) eng.ptr(...m.ptr); if (typeof m.run === 'boolean') eng.run(m.run) }
+    eng = lxPollenEngine(canvas, near, { raf: (f) => requestAnimationFrame(f), caf: (id) => cancelAnimationFrame(id) })
+    send = (m) => { if (!eng) return; if (m.size) eng.size(...m.size); if (m.ptr) eng.ptr(...m.ptr); if (typeof m.run === 'boolean') eng.run(m.run) }
   }
   send({ size: measure() })
   let running = false, halted = false, visible = true, held = true // held: set up, not drawing until go()
@@ -312,14 +343,20 @@ function lxPollen(canvas, near, track) {
   const leave = () => send({ ptr: [-9999, -9999] })
   const vis = () => run(true)
   let resizeT = 0
-  const resize = () => { clearTimeout(resizeT); resizeT = setTimeout(() => send({ size: measure() }), 150) }
-  track(window, 'pointermove', move, { passive: true })
-  track(window, 'blur', leave)
-  track(document, 'visibilitychange', vis)
-  track(window, 'resize', resize)
-  const halt = () => { halted = true; run(false); io.disconnect(); clearTimeout(resizeT); if (worker) { worker.terminate(); worker = null } }
-  lxKill.push(halt)
-  // Once the film has the screen, the pollen is gone for good: no frame loop left running under it.
+  const resize = () => { M.clear(resizeT); resizeT = M.timeout(() => send({ size: measure() }), 150) }
+  M.on(window, 'pointermove', move, { passive: true })
+  M.on(window, 'blur', leave)
+  M.on(document, 'visibilitychange', vis)
+  M.on(window, 'resize', resize)
+  // Once the film has the screen, or the visit is over, the pollen is gone for good: no frame loop, no worker left.
+  const halt = () => {
+    if (halted) return
+    halted = true; run(false); io.disconnect(); M.clear(resizeT)
+    if (worker) { worker.terminate(); worker = null }
+    if (eng) { eng.free(); eng = null }
+    window.__lxPollen = null
+  }
+  M.kills.push(halt)
   const stats = () => new Promise((res) => { if (!worker) return res(null); worker.onmessage = (e) => res(e.data.dts); worker.postMessage({ stats: true }) })
   window.__lxPollen = { stats, inWorker: Boolean(worker) }
   return { halt, go: () => { held = false; run(true) }, inWorker: Boolean(worker) }
@@ -328,13 +365,13 @@ function lxPollen(canvas, near, track) {
 /** Film grain: one tile of light and dark specks on transparency, made once (off the main thread's encoder), laid over
    the first screen with ordinary blending and cycled by CSS steps on the compositor. (It used to be an opaque grey
    noise blended with mix-blend-mode: overlay over a layer more than twice the screen: a full-screen blend every frame.) */
-function lxGrain(el) {
+function lxGrain(el, M) {
   const c = document.createElement('canvas'), S = 256
   c.width = c.height = S
   const x = c.getContext('2d'), img = x.createImageData(S, S)
   for (let i = 0; i < img.data.length; i += 4) { const v = Math.random() * 255 | 0, l = v > 127 ? 255 : 0; img.data[i] = img.data[i + 1] = img.data[i + 2] = l; img.data[i + 3] = Math.abs(v - 127) * 0.32 | 0 }
   x.putImageData(img, 0, 0)
-  return new Promise((res) => c.toBlob((b) => { if (b) { const u = URL.createObjectURL(b); el.style.backgroundImage = `url(${u})`; lxKill.push(() => URL.revokeObjectURL(u)) } res() }, 'image/png'))
+  return new Promise((res) => c.toBlob((b) => { if (b && M.live()) { const u = URL.createObjectURL(b); el.style.backgroundImage = `url(${u})`; M.kills.push(() => URL.revokeObjectURL(u)) } res() }, 'image/png'))
 }
 
 /** from() as fromTo(): the end values are the natural ones (0, 1), never whatever a refresh happened to record. */
@@ -350,7 +387,7 @@ function lxFT(v) {
 
 /** The motion page: the opening at once (its own light things only), then the film behind it, then the entrance's
  *  Begin, the fly-through and the film. */
-function lxRun(root, { soon = false } = {}) {
+function lxRun(root, M, { soon = false } = {}) {
   const html = document.documentElement
   const fine = matchMedia('(pointer: fine)').matches && !matchMedia('(hover: none)').matches
   root.classList.add('lx-motion')
@@ -359,32 +396,32 @@ function lxRun(root, { soon = false } = {}) {
   scrollTo(0, 0)
   // The page view's entrance (liquid.js) is a transform: finish it so the fly-through measures the real layout.
   $('#page-view').getAnimations?.().forEach((a) => a.finish())
-  const listeners = []
-  const on = (target, type, fn, opts) => { target.addEventListener(type, fn, opts); listeners.push(() => target.removeEventListener(type, fn, opts)) }
-  const timers = { auto: 0, stall: 0, wait: 0 }
-  let stopCursor = () => {}, pollen = null, ctx = null, alive = true
-  lxKill.push(() => {
-    alive = false
-    listeners.forEach((f) => f()); Object.values(timers).forEach((t) => clearTimeout(t)); stopCursor()
+  const on = M.on, alive = M.live, mountAt = performance.now()
+  const timers = { auto: 0, stall: 0, wait: 0, dwell: 0 }
+  let stopCursor = () => {}, pollen = null, ctx = null, fly = null
+  M.kills.push(() => {
+    stopCursor()
+    fly?.kill()
     html.classList.remove('lx-stage', 'lx-booting', 'lx-prepaint', 'lx-filming', 'lxo-near', 'lxo-docked')
-    lxFilmPark() // paused and hidden: a return visit within a few minutes finds it ready (or further on its way)
   })
-  lxFilmHost() // the film's layer only (the night behind the opening): the film itself comes after the opening
+  lxFilmHost() // the film's layer only (the night behind the opening): the film itself comes once the visitor stays
 
   // ---- 1 The opening's own light things: fonts and the photo (waited for LX_LIGHT at most), grain on the side, pollen.
-  const keep = [] // decoded images stay referenced, so they stay decoded
+  const keep = [] // decoded images stay referenced, so they stay decoded (and let go, a download stopped, on leaving)
+  M.kills.push(() => { keep.splice(0).forEach((img) => { img.src = '' }) })
   const light = () => {
     const fonts = Promise.all(['400 100px "Young Serif"', 'italic 400 100px "Young Serif"', '700 16px Figtree', '500 16px Figtree'].map((f) => document.fonts.load(f))).catch(() => {})
     const img = new Image()
+    img.decoding = 'async'
     img.src = '/assets/hero.webp'
     keep.push(img)
-    return lxTimeout(Promise.all([fonts, img.decode().catch(() => {})]), LX_LIGHT)
+    return lxTimeout(M, Promise.all([fonts, img.decode().catch(() => {})]), LX_LIGHT)
   }
-  lxGrain($('.lx-grain', root)).catch(() => {}) // not waited for: the grain shows once its tile is made
-  pollen = lxPollen($('.lx-pollen', root), $('.lx-pollen.is-near', root), on)
+  lxGrain($('.lx-grain', root), M).catch(() => {}) // not waited for: the grain shows once its tile is made
+  pollen = lxPollen($('.lx-pollen', root), $('.lx-pollen.is-near', root), M)
 
   // ---- 2 The opening: entrance, Begin, fly-through (built now, played later).
-  let intro = null, zoom = null, entered = false
+  let intro = null, zoom = null
   ctx = gsap.context(() => {
     const E = { out: 'expo.out', quint: 'power4.out' }
     intro = gsap.timeline({ paused: true, onComplete: () => afterEntrance() })
@@ -415,7 +452,7 @@ function lxRun(root, { soon = false } = {}) {
       s.setProperty('--hry', `${(r.height * 0.3 * k).toFixed(1)}px`)
       if (!holed) { holed = true; open.classList.add('is-holed') }
     }
-    lxKill.push(() => { open.classList.remove('is-holed'); photoEl.style.visibility = '' })
+    M.kills.push(() => { open.classList.remove('is-holed'); photoEl.style.visibility = '' })
     const T0 = 0.001
     zoom = gsap.timeline({ paused: true, onUpdate() { hole(this.progress()) } })
       .fromTo('.lx-summers', { yPercent: 0, opacity: 1 }, { yPercent: 50, opacity: 0, ease: 'power2.in', duration: 0.3, immediateRender: false }, T0)
@@ -427,7 +464,12 @@ function lxRun(root, { soon = false } = {}) {
       .fromTo('.lx-fifty.is-photo', { opacity: 1 }, { opacity: 0, duration: 0.12, immediateRender: false }, 0.6)
       .add(() => {}, 1)
   }, root)
-  lxKill.push(() => ctx.revert())
+  M.kills.push(() => {
+    ctx.revert()
+    gsap.killTweensOf([intro, zoom])
+    // (this page makes no scroll triggers today; any made on it later go with it)
+    window.ScrollTrigger?.getAll().filter((st) => st.trigger instanceof Element && root.contains(st.trigger)).forEach((st) => st.kill())
+  })
 
   // ---- 3 The film, loading behind the opening. Its state is the button's: 'idle' (not asked for yet), 'loading'
   // (the button says how far, and fills), 'ready' (Begin), 'failed' (a plain link to the film's own page).
@@ -443,7 +485,7 @@ function lxRun(root, { soon = false } = {}) {
   }
   // No word from the film for a while: say so (any step forward takes the note away again).
   const stalled = () => { if (film === 'loading') loadText.textContent = 'Still loading… the film is on its way' }
-  const heard = () => { clearTimeout(timers.stall); timers.stall = setTimeout(stalled, LX_STALL); if (loadText.textContent !== LINE) loadText.textContent = LINE }
+  const heard = () => { M.clear(timers.stall); timers.stall = M.timeout(stalled, LX_STALL); if (loadText.textContent !== LINE) loadText.textContent = LINE }
   const progress = (f) => {
     if (film !== 'loading' || !(f > filmF)) return
     filmF = f
@@ -451,9 +493,9 @@ function lxRun(root, { soon = false } = {}) {
     heard(); label()
   }
   const ready = () => {
-    if (film === 'ready' || film === 'failed' || !alive) return
+    if (film === 'ready' || film === 'failed' || !alive()) return
     film = 'ready'
-    clearTimeout(timers.stall); clearTimeout(timers.wait)
+    M.clear(timers.stall); M.clear(timers.wait)
     beginB.classList.remove('is-loading'); beginB.removeAttribute('aria-busy'); beginB.style.removeProperty('--lx-p')
     beginT.textContent = 'Begin the film'
     loadText.textContent = LINE
@@ -462,10 +504,10 @@ function lxRun(root, { soon = false } = {}) {
   // The film cannot play here ('still': it can only show its stills), broke ('error') or was too slow ('slow'): drop it,
   // and the button becomes a plain link to the film's own page. Nothing on this page waits on it any more.
   const fail = (why) => {
-    if (film === 'failed' || film === 'ready' || !alive) return
+    if (film === 'failed' || film === 'ready' || !alive()) return
     film = 'failed'
     wanted = false
-    clearTimeout(timers.stall); clearTimeout(timers.wait); clearTimeout(timers.auto)
+    M.clear(timers.stall); M.clear(timers.wait); M.clear(timers.auto)
     lxFilmDrop()
     const still = why === 'still'
     const a = document.createElement('a')
@@ -481,15 +523,14 @@ function lxRun(root, { soon = false } = {}) {
     loadEl.classList.add('is-failed')
   }
   const startFilm = () => {
-    if (!alive || film !== 'idle') return
+    if (!alive() || film !== 'idle') return
     film = 'loading'
+    M.clear(timers.dwell)
     lxFilmLoad()
-    const mm = lxFilmMM() // parked from an earlier visit, still loading: carry on from where it is
-    if (mm && typeof mm.load === 'number') progress(mm.load)
     heard()
     // Not ready in time: give up on it here (counted while the tab is in view only: a hidden tab loads slowly).
-    const giveUp = () => { if (film !== 'loading') return; if (document.hidden) { timers.wait = setTimeout(giveUp, 5000); return } fail('slow') }
-    timers.wait = setTimeout(giveUp, LX_FILM_WAIT)
+    const giveUp = () => { if (film !== 'loading') return; if (document.hidden) { timers.wait = M.timeout(giveUp, 5000); return } fail('slow') }
+    timers.wait = M.timeout(giveUp, LX_FILM_WAIT)
   }
   on(window, 'message', (e) => {
     if (e.origin !== location.origin || !lxFilm.frame || e.source !== lxFilm.frame.contentWindow || !e.data || e.data.type !== 'one-mango') return
@@ -508,15 +549,15 @@ function lxRun(root, { soon = false } = {}) {
   // film starts with its sound switch off, and one tap turns it on).
   let flying = false
   const go = async (withSound) => {
-    if (flying || !alive || film === 'failed') return
+    if (flying || !alive() || film === 'failed') return
     if (film !== 'ready') { wanted = true; startFilm(); label(); return }
     flying = true
-    clearTimeout(timers.auto)
+    M.clear(timers.auto)
     if (!entered) intro.progress(1)
     try { lxFilmMM().begin({ sound: withSound }) } catch (e) { console.warn('One Mango: begin', e) }
     html.classList.add('lxo-near')
-    await new Promise((res) => gsap.to(zoom, { progress: 1, duration: soon ? 1.2 : LX_FLY, ease: 'power1.inOut', onComplete: res }))
-    if (!alive) return
+    await new Promise((res) => { fly = gsap.to(zoom, { progress: 1, duration: soon ? 1.2 : LX_FLY, ease: 'power1.inOut', onComplete: res }) })
+    if (!alive()) return
     docked = true
     html.classList.add('lxo-docked', 'lx-filming')
     lxFilm.host.classList.add('is-docked')
@@ -527,51 +568,59 @@ function lxRun(root, { soon = false } = {}) {
   // Nobody pressed Begin: the film starts by itself (muted) a few seconds after the entrance, and never before it is ready.
   const auto = () => {
     if (!entered || film !== 'ready' || flying || timers.auto || /[?&]lxhold\b/.test(location.search)) return // ?lxhold: stay on this screen (measuring it)
-    timers.auto = setTimeout(() => go(false), soon ? 800 : LX_AUTO)
+    // LX_AUTO counts from the entrance; a film ready only later (it is asked for after the entrance) still shows its
+    // Begin button for LX_AUTO_MIN before it starts
+    timers.auto = M.timeout(() => go(false), soon ? 800 : Math.max(LX_AUTO_MIN, LX_AUTO - (performance.now() - enteredAt)))
   }
-  const afterEntrance = () => { entered = true; auto() }
-
-  // Where the film is at the start: warm from a visit a moment ago, a still-only film, or (most often) not there yet.
-  const mm0 = lxFilmMM()
-  if (mm0 && mm0.ready && !mm0.destroyed && mm0.state !== 'still') ready()
-  else if (mm0 && mm0.state === 'still') fail('still')
-  else { beginB.classList.add('is-loading'); beginB.setAttribute('aria-busy', 'true'); label() }
+  // The film is asked for once the visitor is staying: the entrance has played, the tab is in view, and they have been
+  // here LX_DWELL or shown they mean to stay (a wheel, a swipe or a key on the opening; Begin asks for it at once, in go).
+  // Leaving sooner costs nothing of the film's: it is never fetched.
+  let entered = false, enteredAt = 0, keen = false, asked = false
+  const want = () => {
+    if (!alive() || film !== 'idle' || asked || !entered || document.hidden) return
+    const left = LX_DWELL - (performance.now() - mountAt)
+    if (left > 0 && !keen && !soon) { M.clear(timers.dwell); timers.dwell = M.timeout(want, left + 20); return }
+    asked = true
+    M.idle(startFilm) // in an idle moment: the frame's code runs on this page's main thread
+  }
+  const keenly = () => { if (!keen) { keen = true; want() } }
+  on(document, 'visibilitychange', want)
+  const afterEntrance = () => { entered = true; enteredAt = performance.now(); want(); auto() }
+  beginB.classList.add('is-loading'); beginB.setAttribute('aria-busy', 'true'); label()
 
   // Keys pressed on this page (the frame does not have focus) go to the film once it has the screen.
   on(window, 'keydown', (e) => {
-    if (!docked || e.metaKey || e.ctrlKey || e.altKey) return
+    if (e.metaKey || e.ctrlKey || e.altKey) return
     if (e.target instanceof Element && e.target.closest('header, nav, .liquid-navigation, input, textarea, select, [contenteditable]')) return
+    if (!docked) { keenly(); return }
     const mm = lxFilmMM()
     try { if (mm && mm.ui && mm.ui.key(e.key, null)) e.preventDefault() } catch {}
   })
   // Nothing scrolls here; a wheel on the opening points at the Begin button.
   const mine = (e) => e.target instanceof Element && root.contains(e.target)
-  on(window, 'wheel', (e) => { if (docked || !mine(e)) return; e.preventDefault(); if (html.classList.contains('lx-booting')) return; beginB.classList.remove('is-nudge'); void beginB.offsetWidth; beginB.classList.add('is-nudge') }, { passive: false })
-  on(window, 'touchmove', (e) => { if (mine(e) && e.cancelable) e.preventDefault() }, { passive: false })
+  on(window, 'wheel', (e) => { if (docked || !mine(e)) return; e.preventDefault(); keenly(); if (html.classList.contains('lx-booting')) return; beginB.classList.remove('is-nudge'); void beginB.offsetWidth; beginB.classList.add('is-nudge') }, { passive: false })
+  on(window, 'touchmove', (e) => { if (!mine(e)) return; if (e.cancelable) e.preventDefault(); if (!docked) keenly() }, { passive: false })
 
   // ---- 4 Once the light things are in (or LX_LIGHT is up): paint the first screen once, hidden under the night cover
   // (every layer of the entrance is made and drawn now, not on its first frame), then let the cover go and play the
-  // entrance. Each wait is capped, so a background tab (no frames) cannot hold it. Then, and only then, the film.
+  // entrance. Each wait is capped, so a background tab (no frames) cannot hold it. The film comes after (want).
   const reveal = async () => {
     const layers = $$('.lx-fifty, .lx-summers .lx-ch, .lx-open-caps, .lx-open-promise, .lx-load', root)
     layers.forEach((el) => { el.style.willChange = 'transform, opacity' })
     html.classList.add('lx-prepaint')
     intro.progress(1, true) // (no callbacks: this is only a paint)
-    await lxTimeout(lxFrames(3), 250)
+    await lxTimeout(M, lxFrames(M, 3), 250)
     intro.progress(0, true)
-    await lxTimeout(lxFrames(2), 150)
-    if (!alive) return
+    await lxTimeout(M, lxFrames(M, 2), 150)
+    if (!alive()) return
     html.classList.remove('lx-booting', 'lx-prepaint')
     pollen && pollen.go()
     intro.play()
     if (fine) stopCursor = lxCursor(root, on)
-    // The film: after the entrance's first frames, in an idle moment (it shares this main thread while it builds).
-    await lxTimeout(lxFrames(2), 300)
-    if (alive) lxIdle(startFilm)
   }
-  light().then(() => alive && reveal()).catch((err) => {
+  light().then(() => alive() && reveal()).catch((err) => {
     // The reveal going wrong must not leave the night cover up: the static page, as when the setup throws.
-    if (!alive) return
+    if (!alive()) return
     console.warn('Legacy page: motion off', err)
     lxStop({ keepPage: true })
     root.classList.remove('lx-motion', 'lx-fine')
@@ -603,21 +652,28 @@ function lxCursor(root, on) {
   return () => { cancelAnimationFrame(id); id = 0; cur.classList.remove('is-on') }
 }
 
+/** Ends the visit, if there is one: everything it started stops now, the film is closed (lxFilmClose), and the page's
+   classes on <html> go. Safe to call any number of times. keepPage: the page stays on screen (it falls back to static). */
 function lxStop({ keepPage = false } = {}) {
-  const kills = lxKill
-  lxKill = []
-  kills.reverse().forEach((f) => { try { f() } catch {} })
+  const M = lxM
+  lxM = null
+  M?.end()
+  lxFilmClose()
   const html = document.documentElement
   html.classList.remove('lx-head-away')
   if (!keepPage) html.classList.remove('lx-on')
 }
 
-// Leaving the page: tear everything down (the film is parked), give the home page its title back, and let the shop's
-// own scroll effects measure again.
+// Leaving the page (another route, the back button): tear everything down, give the home page its title back, and let
+// the shop's own scroll effects measure again.
 window.addEventListener('mm:route', () => {
   if (document.body.dataset.page === 'legacy') return
-  const was = lxKill.length || document.documentElement.classList.contains('lx-on')
+  const was = lxM || document.documentElement.classList.contains('lx-on')
   lxStop()
   if (document.title === LX_TITLE) document.title = LX_HOME_TITLE
   if (was && window.ScrollTrigger) requestAnimationFrame(() => ScrollTrigger.refresh())
 })
+// The tab going away (a full navigation, closing, or into the back-forward cache): the same, and if the page comes
+// back from that cache still on this route, it is mounted afresh.
+window.addEventListener('pagehide', () => lxStop())
+window.addEventListener('pageshow', (e) => { if (e.persisted && document.body.dataset.page === 'legacy' && !lxM) legacyView() })

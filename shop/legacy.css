@@ -138,8 +138,8 @@ body[data-page="legacy"]::after{display:none}
 body[data-page="legacy"] .header :is(.icon-button,.bag-button){-webkit-backdrop-filter:none;backdrop-filter:none}
 body[data-page="legacy"] .header .header-icon svg{color:#f6efdc}
 
-/* ---- The film (legacy.js lxFilm*). One Mango plays in a frame on a fixed layer under the page (.lxo-host, made once
-   and kept while the visitor browses the shop for a few minutes: parked, it is hidden and draws nothing). The
+/* ---- The film (legacy.js lxFilm*). One Mango plays in a frame on a fixed layer under the page (.lxo-host, made for
+   one visit and removed, frame and all, when the visitor leaves). The
    fly-through thins the opening's night away inside the zero, so the film is already there when the zoom ends. In
    motion the page is one fixed stage: nothing scrolls, and the footer is not part of it. Its blurred glass (header,
    dock) is solid here: a backdrop blur over a moving picture is recomputed on every frame. */
@@ -150,7 +150,6 @@ html.lx-stage .lx-open{height:100svh;height:100dvh;min-height:0}
 .lxo-reel{position:relative;color:var(--cream)}
 .lx-motion .lxo-reel{position:fixed;inset:0;z-index:1;pointer-events:none}
 .lxo-host{position:fixed;inset:0;z-index:0;overflow:hidden;background:#0b1f15;transform-origin:50% 55%;pointer-events:none}
-.lxo-host.is-parked{visibility:hidden}
 html:not(.lx-on) .lxo-host{visibility:hidden}
 .lxo-frame{display:block;width:100%;height:100%;border:0;background:#0b1f15;pointer-events:none}
 .lxo-host.is-docked,.lxo-host.is-docked .lxo-frame{pointer-events:auto}
