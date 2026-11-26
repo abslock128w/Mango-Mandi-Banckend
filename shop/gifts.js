@@ -24,6 +24,11 @@
    open as a gift for their first person), so screen 2 and back, a reload or the sign-in page keep it. Pure helpers (the
    draft, the lines, the week, the bodies) are in gift-rows.js. Gift orders and gift pre-orders booked for several people
    before this change still open (/gifts/:id, /gifts/pre/:id) and show each person.
+   - The search (#gift-q) is the shop's: the same list of mangoes as you type (suggest.js, window.MM_SUGGEST, key 'gifts'),
+     the same typos and other names (catalog.js filter: "alpfonso" is Alphonso, "mix" is Mixed Variety Mangoes) and the
+     same "Showing results for Alphonso · search instead for ‘alpfonso’" over the cards (giftVisible). Choosing a mango in
+     the list goes to its card and puts the focus on its "+ Add to gift" (or its stepper) (giftFound). Without suggest.js
+     the box still filters the cards; without catalog.js's filter, by the words as typed (giftMatch).
    Reuses app.js and pages.js: prices and stock from the shop's catalogue (skus, shelf, MM.catalogue), the field errors
    (fieldError), the sign-in page (/login?next=), the payment script (loadScript(RAZORPAY)) and the page frame.
    Loaded after pages.js (it adds to PAGES) and before app.js, so top-level code only declares and listens.
@@ -67,7 +72,7 @@ const GIFT_FIRST = 'Mixed Variety Mangoes'
 let giftSeq = 0
 // What the page knows: the policy (the switch), the catalogue's days and stock, the slots, which pincodes we serve and
 // their city, and each card's size, ripeness and "Change" (by variety), and the search.
-const giftEnv = { ready: false, policy: null, catPin: null, dates: [], days: null, cutoff: '', slots: [], slotsFor: '', pins: {}, cities: {}, stage: {}, size: {}, open: {}, q: '' }
+const giftEnv = { ready: false, policy: null, catPin: null, dates: [], days: null, cutoff: '', slots: [], slotsFor: '', pins: {}, cities: {}, stage: {}, size: {}, open: {}, q: '', exact: null }
 let gift = giftFresh()
 
 /** The gift being made: its box lines [{ sku, stage, qty }], the one person, the note and From, the day and time (in
@@ -264,13 +269,15 @@ function giftsPage(want = 'pick') {
     </section>
     <section class="gift-packs" aria-labelledby="gift-packs-h">
       <div class="gift-packs-head"><h2 id="gift-packs-h" tabindex="-1">Choose the mangoes</h2><p>Every mango in the shop, at the shop price. Prices include GST.</p></div>
-      <div class="gift-tools"><div class="gift-when-chip" id="gift-when-chip"></div><label class="gift-search">${icon('search')}<span class="sr-only">Find a mango by name</span><input type="search" id="gift-q" autocomplete="off" enterkeyhint="search" placeholder="Find your kind of mango…" value="${esc(giftEnv.q)}" aria-controls="gift-grid"></label></div>
+      <div class="gift-tools"><div class="gift-when-chip" id="gift-when-chip"></div><div class="gift-q-field"><label class="gift-search">${icon('search')}<span class="sr-only">Find a mango by name</span><input type="search" id="gift-q" autocomplete="off" enterkeyhint="search" placeholder="Find your kind of mango…" value="${esc(giftEnv.q)}" aria-controls="gift-grid"></label></div></div>
+      <p class="search-names-fix is-shelf" id="gift-fix" aria-live="polite" hidden></p>
       <div class="gift-grid" id="gift-grid" aria-busy="true">${Array.from({ length: 4 }, () => '<div class="gift-card is-skeleton" aria-hidden="true"><div class="gift-card-photo"></div><div class="gift-card-body"><span class="sk-block"></span><span class="sk-block"></span></div></div>').join('')}</div>
       <p class="gift-grid-count" id="gift-count" aria-live="polite"></p>
     </section>
     </div>
     <section class="gift-send page-card" id="gift-send" aria-labelledby="gift-send-h"${gift.flow ? '' : ' hidden'}></section>
     <p class="sr-only" id="gift-live" aria-live="polite"></p>`
+  giftSuggest()
   giftLoad(seq)
 }
 
@@ -367,23 +374,83 @@ function giftMatch(v, q) {
   return [v.name, ...(c.tags || []), c.flavour || '', c.bestFor || ''].some((t) => String(t).toLowerCase().includes(q))
 }
 
+/**
+ * The gift cards a search shows, best first, read as the shop's search reads it (catalog.js filter: other names and
+ * typos; "mango" and the ripeness words alone filter nothing); suggest.js lists the first six of the same cards.
+ * `typed`: the words in the box (the list reads them before the page has kept them). Returns { all, cards, fixed, from }:
+ * fixed is the name the search was read as ("Showing results for Alphonso"), from the words typed.
+ */
+function giftVisible(typed = giftEnv.q) {
+  const all = giftVarieties(), from = String(typed || '').trim(), q = from.toLowerCase()
+  if (giftEnv.exact && giftEnv.exact !== q) giftEnv.exact = null
+  if (!q) return { all, cards: all, fixed: null, from }
+  const C = window.MM_CATALOG
+  if (!C || !C.filter) return { all, cards: all.filter((v) => giftMatch(v, q)), fixed: null, from }
+  const r = C.filter(q, all, { exact: giftEnv.exact === q })
+  if (!r.names) return { all, cards: all, fixed: null, from }
+  const at = (v) => (v.name in r.tier ? r.tier[v.name] : 999)
+  return { all, cards: all.filter((v) => r.names.includes(v.name)).sort((a, b) => at(a) - at(b)), fixed: r.fixed, from }
+}
+
+/** "Showing results for Alphonso · search instead for ‘alpfonso’" over the cards while the search was read as another name. */
+function giftFixLine(fixed, from) {
+  const line = $('#gift-fix')
+  if (!line) return
+  line.hidden = !fixed
+  line.innerHTML = fixed ? `<span>Showing results for <strong>${esc(fixed)}</strong></span> <span aria-hidden="true">·</span> <button type="button" class="search-names-exact" data-gift-exact>search instead for ‘${esc(from)}’</button>` : ''
+}
+
 function renderGiftGrid(focus) {
   const grid = $('#gift-grid')
   if (!grid) return
-  const all = giftVarieties()
+  clearTimeout(qTimer)
+  const { all, cards: list, fixed, from } = giftVisible()
   grid.removeAttribute('aria-busy')
   const count = $('#gift-count')
   if (!all.length) {
     grid.innerHTML = `<div class="page-card empty-cart bag-empty empty-state">${icon('gift')}<h2>The mangoes are a moment away.</h2><p>We couldn’t load them just now. Try again in a minute.</p><button class="button primary bag-explore" data-gift-retry>Try again ${icon('arrow')}</button></div>`
     if (count) count.textContent = ''
+    giftFixLine(null)
     return
   }
-  const q = giftEnv.q.trim().toLowerCase(), list = q ? all.filter((v) => giftMatch(v, q)) : all
+  giftFixLine(list.length ? fixed : null, from)
   grid.innerHTML = list.length
     ? list.map(giftCard).join('')
-    : `<div class="gift-none">${icon('search')}<p>No mango matches “${esc(giftEnv.q.trim())}”.</p><button type="button" class="button secondary" data-gift-q-clear>Show every mango</button></div>`
-  if (count) count.textContent = q ? `${plural(list.length, 'mango matches', 'mangoes match')} “${giftEnv.q.trim()}”, of ${all.length}.` : `All ${all.length} mangoes in the shop can be gifted.`
+    : `<div class="gift-none">${icon('search')}<p>No mangoes found.</p><button type="button" class="button secondary" data-gift-q-clear>Show every mango</button></div>`
+  if (count) count.textContent = !from || list.length === all.length ? `All ${all.length} mangoes in the shop can be gifted.` : fixed ? `Showing results for ${fixed}: ${list.length} of ${all.length} mangoes.` : list.length ? `${plural(list.length, 'mango matches', 'mangoes match')} “${from}”, of ${all.length}.` : ''
   refocus(grid, focus)
+}
+
+/** Gives the search box the shop's list of mangoes as you type (suggest.js), once that file has run. */
+function giftSuggest() {
+  const input = $('#gift-q')
+  if (!input || !window.MM_SUGGEST) return
+  window.MM_SUGGEST.attach(input, 'gifts', {
+    field: input.closest('.gift-q-field'),
+    results: (text) => giftVisible(text),
+    stage: (v) => cardStageFor(v.name, cardSku(v).sku),
+    choose: giftFound,
+    grid: { grid: '#gift-grid', card: '.gift-card', none: '.gift-none', page: '#gift-packs-h' },
+    exact: 'data-gift-exact',
+    exactEvent: 'mm:gift-exact',
+  })
+}
+window.addEventListener('mm:suggest', giftSuggest)
+
+/** A mango chosen in the search's list: the cards follow the search at once, and its card is brought to the screen and
+ *  lit, with the focus on its "+ Add to gift" (or the stepper's +, or the bag button); a card with nothing to press
+ *  takes the focus itself. */
+function giftFound(name) {
+  const input = $('#gift-q')
+  if (input) giftEnv.q = input.value
+  renderGiftGrid()
+  const card = $$('#gift-grid .gift-card').find((c) => c.dataset.variety === name)
+  if (!card) return
+  const to = card.querySelector('.gift-acts [data-gift-qty="1"]') || [...card.querySelectorAll('.gift-acts button, .gift-acts a')].find((b) => !b.disabled)
+  if (to) to.focus({ preventScroll: true })
+  else { card.tabIndex = -1; card.focus({ preventScroll: true }) }
+  if (window.MM_SUGGEST) window.MM_SUGGEST.bring(card, card)
+  else card.scrollIntoView({ block: 'center' })
 }
 
 /** A card's two-way switches (ripeness, box size) slide: the lens moves to the tapped choice first, and the card is
@@ -1461,8 +1528,14 @@ document.addEventListener('click', (e) => {
   } else if (d.giftBag) {
     // Gifting switched off: the box goes in the bag as a gift for one person.
     if (bagAddGift(d.giftBag, d.stage || 'SEMI_RIPE', 1)) renderGiftGrid()
+  } else if (b.hasAttribute('data-gift-exact')) {
+    // "search instead for ‘alpfonso’": the words as typed, no other names or typos (the shop's searchExact)
+    giftEnv.exact = giftEnv.q.trim().toLowerCase()
+    renderGiftGrid()
+    window.dispatchEvent(new Event('mm:gift-exact'))
   } else if (b.hasAttribute('data-gift-q-clear')) {
     giftEnv.q = ''
+    giftEnv.exact = null
     const q = $('#gift-q')
     if (q) { q.value = ''; q.focus() }
     renderGiftGrid()
@@ -1563,8 +1636,12 @@ document.addEventListener('focusout', (e) => {
 })
 // Enter in a one-line field does not send the form (there is no submit button in it: the pay bar pays).
 document.addEventListener('submit', (e) => { if (e.target.id === 'gift-form') e.preventDefault() })
-// Enter in the search keeps the page where it is.
-document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.id === 'gift-q') e.preventDefault() })
+// Enter in the search: the cards follow it at once (the list, suggest.js, then goes to the first one); the page is not sent.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target || e.target.id !== 'gift-q') return
+  e.preventDefault()
+  if (giftEnv.q !== e.target.value) { giftEnv.q = e.target.value; renderGiftGrid() }
+})
 
 window.addEventListener('mm:route', () => {
   if (document.title === GIFT_TITLE && !giftPage()) document.title = 'VMR Mangoes — A little taste of summer.'
